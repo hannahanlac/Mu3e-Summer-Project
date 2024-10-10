@@ -61,8 +61,3 @@ plt.show()
 #print(vertices.show)
 
 ### Code attempting to plot the number of mass events per frame by number of frames## 
-<<<<<<< HEAD:Codes/3rd Oct trying to find more signal plots.py
-
-print('Paul Revere')
-=======
->>>>>>> main:Codes/mass_frequency_plotting.py
