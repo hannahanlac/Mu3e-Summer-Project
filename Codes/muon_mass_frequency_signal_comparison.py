@@ -64,6 +64,7 @@ counts, bin_edges, patches = plt.hist(overall_mass_array, bins=np.arange(104,106
 plt.show()
 
 
+print ('hello')
 
 
 
