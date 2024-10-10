@@ -61,5 +61,3 @@ plt.show()
 #print(vertices.show)
 
 ### Code attempting to plot the number of mass events per frame by number of frames## 
-
-print('hello world')
