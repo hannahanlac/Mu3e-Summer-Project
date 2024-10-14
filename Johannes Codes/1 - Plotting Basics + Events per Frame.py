@@ -19,7 +19,7 @@ for i in range(100):
 #E.g. finds 2 vertices and prints the masses
 
 print(len(vertices))
-#"vertices[0]" is your first frame, "vertices[1]" the second and so on
+#"vertices[0]" is first frame, "vertices[1]" the second etc
 #'vertices' = an array, one entry for each frame.
 #code counting number of array entries i.e. frames in array/sample
 #9921 frames in sample
@@ -33,17 +33,18 @@ print(Frames)
 
 number_list = []
 #number of vertices in each frame - do in list as can't create an empty array, must populate with a zero
-#so just use empty list and convert to array later
+#so just use empty list and convert to array later (Can create empty array - see later)
 
 for i in range(len(vertices)):
     number_per_frame = len(vertices[i].mmass)
     #print(number_per_frame)
     number_list.append(number_per_frame)
 #for every value in list (up to number of frames in sample)
-#count the number of masses(vertices) and add that number to the list - corresponding to the number frame just scanned
+#count the number of masses(vertices) and add that number to the list - corresponding to the number frame 
+# just scanned
     
 number_array = np.array(number_list)
-#convert list to array
+#convert list to array of number of events/mmass reconstructions per frame
 
 print(np.max(number_array))
 #plots the maximum number of vertices found in a frame
