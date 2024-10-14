@@ -48,16 +48,19 @@ number_array = np.array(number_list)
 
 print(np.max(number_array))
 #plots the maximum number of vertices found in a frame
+#ANS - one frame counted as having 103 events in the frame
+# However, this = sus as have seen that when try do this for a large number of frames (e.g. all 9921),
+# code breaks and makes mistakes accounting for how many events in what frames
 
 print(number_array)
 #plots the number array - number of vertices per frame
 #can match with print(Frames) to see number of vertices next to number of frames
 
-'''
+
 
 plt.bar(Frames, number_array)
-plt.ylim(0, 80)
-plt.xlim(0, 10000)
+plt.ylim(0, 10)
+plt.xlim(0, 19)
 plt.xlabel('Frame')
 plt.ylabel('Number of Vertices')
 plt.title('Number of Events per Frame')
@@ -70,7 +73,7 @@ plt.show()
 #in future, if need to look at this, select a smaller subset of frames and just plot for those -
 #code is then accurate (check a few values next to arrays anyway just to be safe)
 
-'''
+
 
 #Code is very inefficient and excessive data points is breaking code giving
 #issues plot when try programme all of them
@@ -78,5 +81,5 @@ plt.show()
 #Find way to bin more efficiently so plot accurately
 #Find way to count events in way can keep track of them
 #Plot chi2, target distance and mmass against events
-#Cut out events based on certain parameters with above
+#Cut out events based on certain parameters with above metrics
 #e.g. big mass dif from @ rest muon, large(?) target dist?
