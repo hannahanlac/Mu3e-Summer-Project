@@ -59,10 +59,10 @@ width = 0.4
 fig, ax = plt.subplots(figsize=(10, 6))
 
 # Plot the first bar chart (background) with transparency
-ax.bar(x, event_total_truep_array[:20], width, label='True Momentum', alpha=0.5, color='red', edgecolor='black')
+ax.bar(x, event_total_truep_array[:20], width, label='True Momentum', alpha=0.5, color='red') #edgecolor='black'
 
 # Plot the second bar chart (foreground) opaque
-ax.bar(x, event_totalp_array[:20], width, label='Reconstructed Momentum', alpha=0.5, color='grey', edgecolor='black')
+ax.bar(x, event_totalp_array[:20], width, label='Reconstructed Momentum', alpha=0.5, color='grey') #edgecolor='black'
 
 # Add labels and title
 ax.set_ylabel('Momentum')

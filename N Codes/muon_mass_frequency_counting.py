@@ -43,7 +43,7 @@ for i in range(len(vertices)):           # Iterate through frames and count mass
 print(overall_mass_array)
 
 bin_width = 0.2
-bin_edges = np.arange(0, 170, bin_width) # Realised I don't actually know what this is doing
+bin_edges = np.arange(0, 170, bin_width) # Realised I don't actually know what this is doing (Same)
 
 # 
 plt.hist(overall_mass_array, bins=bin_edges, edgecolor = 'black')
@@ -52,6 +52,7 @@ plt.xlabel('mass')
 plt.ylabel('Frequency density')
 plt.title('Mass frequency')
 
+#J don't understand code from here
 
 counts, bin_edges, patches = plt.hist(overall_mass_array, bins=np.arange(104,106,bin_width), edgecolor = 'blue') # another bit of histogram plot over small area looking at 
 plt.show()
