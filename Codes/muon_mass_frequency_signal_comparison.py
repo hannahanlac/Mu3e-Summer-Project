@@ -63,6 +63,11 @@ plt.title('Mass frequency')
 counts, bin_edges, patches = plt.hist(overall_mass_array, bins=np.arange(104,106,bin_width), edgecolor = 'blue') # another bit of histogram plot over small area looking at 
 plt.show()
 
+<<<<<<< Updated upstream:Codes/muon_mass_frequency_signal_comparison.py
+=======
+print('hello world')
+
+>>>>>>> Stashed changes:N Codes/muon_mass_frequency_signal_comparison.py
 
 print ('hello')
 
