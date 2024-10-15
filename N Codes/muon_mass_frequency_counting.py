@@ -9,7 +9,7 @@ import uproot
 import matplotlib.pyplot as plt
 import numpy as np
 
-file = uproot.open("C:/Users/nicky/OneDrive - University of Bristol/Documents/Bristol uni/Year 4/Mu3e/RawData/signal1_0_1944629_execution_1_run_num_407942_vertex.root")
+file = uproot.open("C:/Users/m4joh/OneDrive/University/Mu3e/signal1_0_1944629_execution_1_run_num_407942_vertex.root")
 vertices = file["vertex"].arrays()
 
 
@@ -42,15 +42,31 @@ for i in range(len(vertices)):           # Iterate through frames and count mass
 #np.sort(overall_mass_array)
 print(overall_mass_array)
 
-bin_width = 5
-bin_edges = np.arange(min(overall_mass_array), max(overall_mass_array) + bin_width, bin_width)
+bin_width = 0.2
+bin_edges = np.arange(0, 170, bin_width) # Realised I don't actually know what this is doing
+
 # 
 plt.hist(overall_mass_array, bins=bin_edges, edgecolor = 'black')
-plt.xlabel('Value')
+
+plt.xlabel('mass')
 plt.ylabel('Frequency density')
 plt.title('Mass frequency')
 
+
+counts, bin_edges, patches = plt.hist(overall_mass_array, bins=np.arange(104,106,bin_width), edgecolor = 'blue') # another bit of histogram plot over small area looking at 
 plt.show()
+
+
+bin_index = list(bin_edges).index(105,104,106)
+frequency_in_105_bin = counts
+
+print(f"The frequency in the bin containing 105 is: {frequency_in_105_bin}")
+
+
+
+
+
+
 #print(vertices.show)
 #print(file.keys())
 #print(file.classnames())
