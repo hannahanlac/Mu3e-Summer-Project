@@ -9,7 +9,7 @@ import uproot
 import matplotlib.pyplot as plt
 import numpy as np
 
-file = uproot.open("C:/Users/m4joh/OneDrive/University/Mu3e/signal1_0_1944629_execution_1_run_num_407942_vertex.root")
+file = uproot.open("C:/Users/nicky/OneDrive - University of Bristol/Documents/Bristol uni/Year 4/Mu3e/RawData/signal1_1_1944629_execution_1_run_num_836827_vertex.root")
 vertices = file["vertex"].arrays()
 
 
@@ -46,8 +46,8 @@ bin_width = 5
 bin_edges = np.arange(min(overall_mass_array), max(overall_mass_array) + bin_width, bin_width)
 # 
 plt.hist(overall_mass_array, bins=bin_edges, edgecolor = 'black')
-plt.xlabel('Value')
-plt.ylabel('Frequency density')
+plt.xlabel('Mass')
+plt.ylabel('Frequency')
 plt.title('Mass frequency')
 
 plt.show()
