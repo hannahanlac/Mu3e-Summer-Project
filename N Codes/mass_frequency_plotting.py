@@ -42,13 +42,13 @@ for i in range(len(vertices)):           # Iterate through frames and count mass
 #np.sort(overall_mass_array)
 print(overall_mass_array)
 
-bin_width = 5
+bin_width = 2
 bin_edges = np.arange(min(overall_mass_array), max(overall_mass_array) + bin_width, bin_width)
 # 
 plt.hist(overall_mass_array, bins=bin_edges, edgecolor = 'black')
-plt.xlabel('Mass')
+plt.xlabel('Mass (MeV/C^2)')
 plt.ylabel('Frequency')
-plt.title('Mass frequency')
+plt.title('Event Mass Frequency')
 
 plt.show()
 #print(vertices.show)
