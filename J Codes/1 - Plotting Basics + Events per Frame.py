@@ -59,8 +59,8 @@ print(number_array)
 
 
 plt.bar(Frames, number_array)
-plt.ylim(0, 10)
-plt.xlim(0, 19)
+plt.ylim(0, 28)
+plt.xlim(0, 9920)
 plt.xlabel('Frame')
 plt.ylabel('Number of Vertices')
 plt.title('Number of Events per Frame')

@@ -55,8 +55,8 @@ print(vertex_mass_array)
 #it comes from, that way can find frame interesting events occurred in
 
 
-plt.hist(vertex_mass_array, bins=20, edgecolor = 'black')
-plt.xlabel('Mass Value')
+plt.hist(vertex_mass_array, bins=100, edgecolor = 'black')
+plt.xlabel(r'Mass Value [MeV/c$^2$]')
 plt.ylabel('Frequency')
 plt.title('Mass Frequency')
 

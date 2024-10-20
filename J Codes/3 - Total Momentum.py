@@ -65,9 +65,14 @@ ax.bar(x, event_total_truep_array[:20], width, label='True Momentum', alpha=0.5,
 ax.bar(x, event_totalp_array[:20], width, label='Reconstructed Momentum', alpha=0.5, color='grey') #edgecolor='black'
 
 # Add labels and title
-ax.set_ylabel('Momentum')
+ax.set_ylabel('Momentum [MeV/c]')
 ax.set_xlabel('Event Number')
 ax.set_title('Reconstructed vs True Total Momentum')
+
+# Setting number of x-ticks and corresponding labels
+tick_positions = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19]  # (array starts from 0)
+tick_labels = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20]    
+plt.xticks(tick_positions, tick_labels)
 
 # Add a legend
 ax.legend()
