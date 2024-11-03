@@ -46,9 +46,9 @@ bin_width = 2
 bin_edges = np.arange(min(overall_mass_array), max(overall_mass_array) + bin_width, bin_width)
 # 
 plt.hist(overall_mass_array, bins=bin_edges, edgecolor = 'black')
-plt.xlabel('Mass (MeV/C^2)')
-plt.ylabel('Frequency')
-plt.title('Event Mass Frequency')
+plt.xlabel('Mass (MeV/C^2)', fontsize=14)
+plt.ylabel('Frequency', fontsize=14)
+plt.title('Event Mass Frequency', fontsize=16)
 
 plt.show()
 #print(vertices.show)

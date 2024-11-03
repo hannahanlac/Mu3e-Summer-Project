@@ -70,9 +70,9 @@ plt.show()
 
 
 plt.scatter(frames, number_array, s=1)  # `s=1` sets the marker size to be very small
-plt.xlabel('Frame')
-plt.ylabel('Number of events')
-plt.title('Number of events for each frame')
+plt.xlabel('Frame', fontsize=14)
+plt.ylabel('Number of events', fontsize=14)
+plt.title('Number of events for each frame', fontsize=16)
 
 plt.show()
 
