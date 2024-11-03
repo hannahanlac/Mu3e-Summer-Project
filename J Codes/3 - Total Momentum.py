@@ -9,7 +9,7 @@ import uproot
 import matplotlib.pyplot as plt
 import numpy as np
 
-file = uproot.open("C:/Users/m4joh/OneDrive/University/Mu3e/signal1_0_1944629_execution_1_run_num_407942_vertex.root")
+file = uproot.open("C:/Users/nicky/OneDrive - University of Bristol/Documents/Bristol uni/Year 4/Mu3e/RawData/signal1_1_1944629_execution_1_run_num_836827_vertex.root")
 vertices = file["vertex"].arrays()
 
 event_totalp_array = np.empty(0)
@@ -65,9 +65,9 @@ ax.bar(x, event_total_truep_array[:20], width, label='True Momentum', alpha=0.5,
 ax.bar(x, event_totalp_array[:20], width, label='Reconstructed Momentum', alpha=0.5, color='grey', edgecolor='black')
 
 # Add labels and title
-ax.set_ylabel('Momentum')
-ax.set_xlabel('Event Number')
-ax.set_title('Reconstructed vs True Total Momentum')
+ax.set_ylabel('Momentum', fontsize=14)
+ax.set_xlabel('Event Number', fontsize=14)
+ax.set_title('Reconstructed vs True Total Momentum', fontsize=16)
 
 # Add a legend
 ax.legend()
