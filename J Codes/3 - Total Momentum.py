@@ -52,29 +52,28 @@ print(len(event_total_truep_array))
 #x = np.arange(len(vertices))
 x = np.arange(20) #Only plot 1st 100 events
 
-# Width of the bars
+# bar width
 width = 0.4
 
-# Create the figure and axis
+# figure and axis
 fig, ax = plt.subplots(figsize=(10, 6))
 
-# Plot the first bar chart (background) with transparency
+# Plot the first bar chart 
 ax.bar(x, event_total_truep_array[:20], width, label='True Momentum', alpha=0.5, color='red') #edgecolor='black'
 
-# Plot the second bar chart (foreground) opaque
+# Plot the second bar chart
 ax.bar(x, event_totalp_array[:20], width, label='Reconstructed Momentum', alpha=0.5, color='grey') #edgecolor='black'
 
 # Add labels and title
-ax.set_ylabel('Momentum [MeV/c]')
+ax.set_ylabel('(Absolute) Momentum [MeV/c]')
 ax.set_xlabel('Event Number')
-ax.set_title('Reconstructed vs True Total Momentum')
+ax.set_title('Reconstructed vs True Total (Absolute) Momentum')
 
 # Setting number of x-ticks and corresponding labels
 tick_positions = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19]  # (array starts from 0)
 tick_labels = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20]    
 plt.xticks(tick_positions, tick_labels)
 
-# Add a legend
 ax.legend()
 
 # Show the plot
