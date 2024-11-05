@@ -16,6 +16,7 @@ vertices = file["vertex"].arrays()
 
 #print(len(vertices))
 
+print('Test')
 
 ### Code attempting to plot the number of mass events per frame by number of frames## 
 
