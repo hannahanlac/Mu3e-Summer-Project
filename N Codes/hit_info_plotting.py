@@ -17,8 +17,10 @@ print(hits1.fields) # Finding the fields in hit info
 
 
 #Trying to access 'hits pixelid' - Although still unsure what this is.
-print(hits1[8])
-hit_pixelid = hits1[8]["hit_pixelid"]
+print(hits1[1])
+print()
+hit_pixelid = hits1[1]["hit_pixelid"]
+print()
 print(hit_pixelid)
 
 
