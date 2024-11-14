@@ -20,3 +20,5 @@ print(hits1.fields) # Finding the fields in hit info
 print(hits1[8])
 hit_pixelid = hits1[8]["hit_pixelid"]
 print(hit_pixelid)
+
+
