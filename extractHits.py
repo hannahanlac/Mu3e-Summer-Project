@@ -1,5 +1,7 @@
 import uproot
 import awkward as ak
+import pandas as pd 
+import os
 
 class Hit(object):
     """Decodes a 32 bit hit ID (as found in the 'hit_pixelid' branch) into its constituent parts"""
@@ -38,26 +40,35 @@ class Hit(object):
             return zt - 6;
         else: return zt;
 
-def printHitsInFrame(filename, frame_number):
+def HitsInFrame(filename, frame_number):
+    """ Function that takes the file, and the frame number, and outputs a panda of the hit information for that frame"""
     inputFile = uproot.open(filename)
     mu3eTree = inputFile['mu3e'].arrays()
     mu3eFrame = ak.Array([mu3eTree[frame_number]])
-    #mu3eFrameArray = ak.Array([mu3eFrame])
-
-    #print(mu3eTree)
-    # print(type(mu3eTree))
-    # print()
-    # print(type(mu3eFrame))
     print(mu3eFrame)
-    # print()
-    # print(mu3eFrameArray)
-    # print(type(mu3eFrameArray))
-
-    for hitsInFrame in mu3eFrame['hit_pixelid']:
+    frame_hits =[] # Initialize list for storing hit information
+    
+    for hitsInFrame in mu3eFrame['hit_pixelid']: # Loop for iterating through frame hits
         for hitIndex in hitsInFrame:
             hit = Hit(hitIndex)
-            print(hit)
+            frame_hits.append({             # Append a dictionary with the hit information
+                'hitIndex': hit.hitIndex, # Not sure actually need the hit index? Include for now - actually useful for denoting each one
+                'station': hit.station(),
+                'layer': hit.layer(),
+                'ladder': hit.phi(),
+                'chip': hit.z(),
+                'pixel_x': hit.x(),
+                'pixel_y': hit.y()
+            })
         break
+
+    hits_data_frame = pd.DataFrame(frame_hits)
+    #print(hits_data_frame)  # Display the DataFrame for verification
+
+    return hits_data_frame  # Return the DataFrame for further use
+    #print(frame_hits)
+
+
 
 # if __name__ == "__main__":
 #     import sys
@@ -69,13 +80,22 @@ def printHitsInFrame(filename, frame_number):
     #     print("File:", argument)
     #     printHitsInFirstFrame(argument)
 
-
+#######################################################################################################
 # Inputting a file and testing the output
 file_path = "/root/Mu3eProject/RawData/HitData/signal1_1_1944629_execution_1_run_num_836827_sort.root"
-frame_number = 1 # Choose which frame you want the hit info for
+frame_number = 63 # Choose which frame you want the hit info for
 
 print()
 print("Test with the file:", file_path) 
 print("Frame number:", frame_number)
 print()
-printHitsInFrame(file_path, frame_number)
+frame_hits_data = HitsInFrame(file_path, frame_number) # Use the function to output the panda for frame hit information
+print(frame_hits_data)
+
+#Saving frame hit information as a csv
+directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/Frame_hits_csvs_signal1_1_1944629" # Directory 
+if not os.path.exists(directory):
+    os.makedirs(directory)
+
+file_name = "hits_data_frame{}.csv".format(frame_number)
+frame_hits_data.to_csv(os.path.join(directory, file_name), index=False) # Keeping this here for now whilst testing - If running properly presumably want to put this in loop so creates files as go 
