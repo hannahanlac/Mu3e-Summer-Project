@@ -28,13 +28,14 @@ def frameHitPlotting (frame_hits_data, layer, frame_number):
        ladder_max = 28
        chip_max = 18
 
-    pixel_size = 250 # This needs to be checked in meeting 
+    pixel_size_y = 250 # Checked in meeting and this correct
+    pixel_size_x = 256 
     
     # Really need to know the x and y max of these pixels! Think I can guess at 250 from the hitmap data Mark has given me?? 
-    pixel_x_max = chip_max* pixel_size
-    pixel_y_max = ladder_max * pixel_size 
-    hit_x_positions_absolute = layer_n_hits['pixel_x'] + (layer_n_hits['chip']-1)*pixel_size
-    hit_y_positions_absolute = layer_n_hits['pixel_y'] + (layer_n_hits['ladder']-1)*pixel_size
+    pixel_x_max = chip_max* pixel_size_x
+    pixel_y_max = ladder_max * pixel_size_y 
+    hit_x_positions_absolute = layer_n_hits['pixel_x'] + (layer_n_hits['chip']-1)*pixel_size_x
+    hit_y_positions_absolute = layer_n_hits['pixel_y'] + (layer_n_hits['ladder']-1)*pixel_size_y
     
     print(hit_x_positions_absolute)
     print(hit_y_positions_absolute)
@@ -53,14 +54,14 @@ def frameHitPlotting (frame_hits_data, layer, frame_number):
     plt.ylabel("Ladder", fontsize=14)
     plt.title(f"Frame {frame_number} Layer {n} Hit Positions", fontsize=16)
 
-    #Add custom ticks and labels for ladder (y-axis) and chip (x-axis)
+    #Add custom ticks and labels for ladder (y-axis) and chip (x-axis) This needs editing
     plt.xticks(
-        ticks=[i * pixel_size for i in range(chip_max)],
+        ticks=[i * pixel_size_x for i in range(chip_max)],
         labels=[str(i + 1) for i in range(chip_max)],
         fontsize=12
     )
     plt.yticks(
-        ticks=[i * pixel_size  for i in range(ladder_max)],
+        ticks=[i * pixel_size_y  for i in range(ladder_max)],
        labels=[str(i + 1) for i in range(ladder_max)],
        fontsize=12
     )
@@ -73,7 +74,7 @@ def frameHitPlotting (frame_hits_data, layer, frame_number):
     plt.show()
  
 # Specify range of frames plots wanted:
-frame_numbers = list(range(1,10))
+frame_numbers = list(range(1,30))
 
 
 for frame_number in frame_numbers:
@@ -82,8 +83,8 @@ for frame_number in frame_numbers:
     print('Frame number:', frame_number)
     print(frame_hits_data)
     frameHitPlotting(frame_hits_data, 1, frame_number)
-    frameHitPlotting(frame_hits_data, 2, frame_number)
-    frameHitPlotting(frame_hits_data, 3, frame_number) # Note currently not doing up/down stream recurl stations
-    frameHitPlotting(frame_hits_data, 4, frame_number)
+    # frameHitPlotting(frame_hits_data, 2, frame_number)
+    # frameHitPlotting(frame_hits_data, 3, frame_number) # Note currently not doing up/down stream recurl stations
+    # frameHitPlotting(frame_hits_data, 4, frame_number)
 
 
