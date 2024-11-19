@@ -101,4 +101,4 @@ for frame_number in frame_numbers:
     frame_hits_data = HitsInFrame(file_path, frame_number) # Use the function to output the panda for frame hit information
     print(frame_hits_data)
     file_name = "hits_data_frame{}.csv".format(frame_number)
-    frame_hits_data.to_csv(os.path.join(directory, file_name), index=False) # Keeping this here for now whilst testing - If running properly presumably want to put this in loop so creates files as go 
+    frame_hits_data.to_csv(os.path.join(directory, file_name), index=False) # Keeping this here for now whilst testing 
