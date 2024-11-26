@@ -40,10 +40,16 @@ def frameHitPlotting (frame_hits_data, layer, frame_number):
     print(hit_x_positions_absolute)
     print(hit_y_positions_absolute)
     
+    heatmap, xedges, yedges = np.histogram2d(
+    hit_x_positions_absolute, hit_y_positions_absolute, bins=[pixel_x_max, pixel_y_max]
+    )
+
+
 
      # Define the figure and plot
     plt.figure(figsize=(10, 8))
-    plt.scatter(hit_x_positions_absolute, hit_y_positions_absolute, color='red', s=20, label='Hit')
+    #plt.scatter(hit_x_positions_absolute, hit_y_positions_absolute, color='red', s=20, label='Hit') # Scatter from doing 1 frame at time
+    plt.imshow(heatmap.T, cmap='hot', interpolation='nearest')
 
     # Set the axis limits
     plt.xlim(0, pixel_x_max)
@@ -74,17 +80,26 @@ def frameHitPlotting (frame_hits_data, layer, frame_number):
     plt.show()
  
 # Specify range of frames plots wanted:
-frame_numbers = list(range(1,30))
+#frame_numbers = list(range(1,3))
 
+######### For doing one frame at a time: #######
+# for frame_number in frame_numbers:
+#     file_name = "/root/Mu3eProject/WorkingVersion/Mu3eProject/Frame_hits_csvs_signal1_1_1944629/hits_data_frame{}.csv".format(frame_number) # Open csv for frame number as panda. NOTE: This will only work if you have already created the hit data csv for the specific frame.
+#     frame_hits_data = pd.read_csv(file_name) 
+#     print('Frame number:', frame_number)
+#     print(frame_hits_data)
+#     frameHitPlotting(frame_hits_data, 1, frame_number)
+#     frameHitPlotting(frame_hits_data, 2, frame_number)
+#     frameHitPlotting(frame_hits_data, 3, frame_number) # Note currently not doing up/down stream recurl stations
+#     frameHitPlotting(frame_hits_data, 4, frame_number)
 
-for frame_number in frame_numbers:
-    file_name = "/root/Mu3eProject/WorkingVersion/Mu3eProject/Frame_hits_csvs_signal1_1_1944629/hits_data_frame{}.csv".format(frame_number) # Open csv for frame number as panda. NOTE: This will only work if you have already created the hit data csv for the specific frame.
-    frame_hits_data = pd.read_csv(file_name) 
-    print('Frame number:', frame_number)
-    print(frame_hits_data)
-    frameHitPlotting(frame_hits_data, 1, frame_number)
-    # frameHitPlotting(frame_hits_data, 2, frame_number)
-    # frameHitPlotting(frame_hits_data, 3, frame_number) # Note currently not doing up/down stream recurl stations
-    # frameHitPlotting(frame_hits_data, 4, frame_number)
+# For doing for a whole file: ### 
 
+file_name = "/root/Mu3eProject/WorkingVersion/Mu3eProject/Frame_hits_csvs_signal1_1_1944629/Full_frame/hits_data_signal1_1_1_test.csv"
+frame_hits_data = pd.read_csv(file_name)
 
+frame_number = 1 # This is superfluous but will use to get working (as now going over whole file)
+frameHitPlotting(frame_hits_data, 1, frame_number)
+frameHitPlotting(frame_hits_data, 2, frame_number)
+frameHitPlotting(frame_hits_data, 3, frame_number) # Note currently not doing up/down stream recurl stations
+frameHitPlotting(frame_hits_data, 4, frame_number)

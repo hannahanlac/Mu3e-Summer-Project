@@ -14,7 +14,7 @@ vertices = file["vertex"].arrays()
 
 #print(dir(vertices[0]))
 
-#print(len(vertices))
+print(len(vertices))
 
 print('Test')
 

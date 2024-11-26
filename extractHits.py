@@ -51,7 +51,8 @@ def HitsInFrame(filename, frame_number):
     for hitsInFrame in mu3eFrame['hit_pixelid']: # Loop for iterating through frame hits
         for hitIndex in hitsInFrame:
             hit = Hit(hitIndex)
-            frame_hits.append({             # Append a dictionary with the hit information
+            frame_hits.append({ 
+                'frameNumber': frame_number,           # Append a dictionary with the hit information
                 'hitIndex': hit.hitIndex, # Not sure actually need the hit index? Include for now - actually useful for denoting each one
                 'station': hit.station(),
                 'layer': hit.layer(),
@@ -59,7 +60,7 @@ def HitsInFrame(filename, frame_number):
                 'chip': hit.z(),
                 'pixel_x': hit.x(),
                 'pixel_y': hit.y()
-            })
+                })
         break
 
     hits_data_frame = pd.DataFrame(frame_hits)
@@ -81,24 +82,41 @@ def HitsInFrame(filename, frame_number):
 #######################################################################################################
 # Inputting a file and testing the output
 file_path = "/root/Mu3eProject/RawData/HitData/signal1_1_1944629_execution_1_run_num_836827_sort.root"
-
-print()
 print("Test with the file:", file_path) 
+print()
+
+#Find number of frames have:
+signal_file = uproot.open(file_path)
+frames = signal_file['mu3e'].arrays()
+total_frames = len(frames)
+print('Total number of frames in file:',total_frames)
+print()
 
 # Create directory for file using
-directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/Frame_hits_csvs_signal1_1_1944629" # Directory : NOTE currently this needs to be changed each time
+directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/Frame_hits_csvs_signal1_1_1944629/Full_frame" # Directory : NOTE currently this needs to be changed each time
+#directory = "/root/Mu3eProject/WorkingVersion/signal1_1_1_all"
 if not os.path.exists(directory):
     os.makedirs(directory)
 
-# Choose range of frames to create data for
-frame_numbers = list(range(1,1000)) 
+file_name = "hits_data_signal1_1_1_test.csv"
+if os.path.exists(file_name): # Deletes old version of file if present
+    os.remove(file_name)
 
+#Iterate over all frames in file
+frame_numbers = list(range(1, total_frames + 1)) 
 
 #Saving frame hit information as a csv
 for frame_number in frame_numbers:
     print("Frame number:", frame_number)
     print()
     frame_hits_data = HitsInFrame(file_path, frame_number) # Use the function to output the panda for frame hit information
+
+    if frame_number ==1:
+         frame_hits_data.to_csv(os.path.join(directory, file_name), index=False, mode ='w') # Keeping this here for now whilst testing 
+
+    else:
+        frame_hits_data.to_csv(os.path.join(directory,file_name), index=False, mode='a', header=False)
+
     #print(frame_hits_data)
-    file_name = "hits_data_frame{}.csv".format(frame_number)
-    frame_hits_data.to_csv(os.path.join(directory, file_name), index=False) # Keeping this here for now whilst testing 
+
+
