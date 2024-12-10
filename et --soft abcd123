@@ -1,0 +1,61 @@
+[33mbc9f84b[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mNick[m[33m)[m Trying again
+[33m6dfb2df[m Lots of changes - updating the code for heatmaps, obtaining new files, plotting histograms
+[33m6ea0914[m[33m ([m[1;31morigin/Nick[m[33m)[m Code updated to iterate over a whole file, for heatmap plotting. Also a full frame csv file. Very much WIP and not neat.
+[33m546a2b7[m Adding lots more csv files
+[33m206066a[m Update to run over 4 layers
+[33ma0dc545[m Updating codes to iterate through a number of frames.
+[33md2ca73e[m Update to extract hits to save hit information as panda, and save as csv.
+[33m97c850d[m Modifying extracthits.py file so that you can choose which frame you want the hit information for.
+[33m6aaa440[m More on trying to make hitmap plots
+[33mf3aa06f[m Investigating sort file
+[33m8f1d50a[m Exploring sort file
+[33m9254eb0[m Adding Tensorflow tutorial
+[33m19ef34e[m Finally got it working!
+[33me2074e4[m test
+[33mf9a39ca[m Merge branch 'Nick' of https://github.com/NickYates8/Mu3eProject into Nick
+[33md8fa71c[m ubuntu working?
+[33m0f90aff[m Update 3 - Total Momentum.py
+[33mbb5ad91[m for presentation
+[33m6774f3d[m More figures for report
+[33m478253e[m Updated graph for presentation
+[33maf0885d[m Update mass_frequency_plotting.py
+[33m8e01ffe[m Update muon_mass_frequency_signal_comparison.py
+[33m313b244[m Merge pull request #14 from NickYates8/main
+[33mdfe3b19[m Merge pull request #10 from NickYates8/Johannes
+[33m31f5967[m Merge branch 'main' of https://github.com/NickYates8/Mu3eProject into Johannes
+[33m48bdd50[m Merge pull request #13 from NickYates8/Nick
+[33m1a919ab[m Update muon_mass_frequency_signal_comparison.py
+[33m16150ce[m Merge pull request #12 from NickYates8/Nick
+[33m0b94d10[m Merge pull request #11 from NickYates8/main
+[33m91676f9[m Update muon_mass_frequency_signal_comparison.py
+[33md982338[m Labbook W3 Clean up
+[33m0fa380f[m Labbook W2 Clean up
+[33md800486[m 1 Update comments
+[33m2b3af15[m Changing to my files in Nick's code
+[33mef7efab[m Deleting Nick GtHub Test
+[33m8c7c7c6[m Merge pull request #8 from NickYates8/Nick
+[33m2f8d63f[m Test
+[33m225cf62[m Resolving Conflict in Update 0
+[33mf99a3e7[m Updating from Main 0.1
+[33m93e18fb[m Updating from Main 0
+[33m745b5d8[m Merge pull request #7 from NickYates8/Nick
+[33m6dbf20a[m Update muon_mass_frequency_counting.py
+[33m0082403[m Merge pull request #6 from NickYates8/Nick
+[33m645f3a4[m Create events_per_frame.py
+[33mfa265a3[m Merge pull request #5 from NickYates8/Nick
+[33m2ac6ba3[m Uploading all figures collected so far
+[33m6d62510[m Renaming file location
+[33m7181c96[m Merge pull request #4 from NickYates8/Nick
+[33m102ebcb[m rename
+[33meb779ef[m Merge pull request #3 from NickYates8/Nick
+[33m85b641b[m Renaming
+[33m42bd44e[m Update 3rd Oct trying to find more signal plots.py
+[33m3f43965[m Merge pull request #2 from NickYates8/Nick
+[33m6f33333[m Update 3rd Oct trying to find more signal plots.py
+[33me601a86[m Update Test.py
+[33m070979d[m Update 3rd Oct trying to find more signal plots.py
+[33m295a79e[m Merge pull request #1 from NickYates8/Nick
+[33mea4a9b7[m Update 3rd Oct trying to find more signal plots.py
+[33m37868e2[m Exisiting codes
+[33m70124ab[m Create Test
+[33m50fe0f3[m Initial commit
