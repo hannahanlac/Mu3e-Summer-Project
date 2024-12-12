@@ -81,7 +81,7 @@ def HitsInFrame(filename, frame_number):
 
 #######################################################################################################
 # Inputting a file and testing the output
-file_path = "/root/Mu3eProject/RawData/HitData/signal1_1_1944629_execution_1_run_num_836827_sort.root"
+file_path = "/root/Mu3eProject/RawData/v5.3/signal1_95_32652_execution_1_run_num_67021_sort.root"
 print("Test with the file:", file_path) 
 print()
 
@@ -93,12 +93,12 @@ print('Total number of frames in file:',total_frames)
 print()
 
 # Create directory for file using
-directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/Frame_hits_csvs_signal1_1_1944629/Full_frame" # Directory : NOTE currently this needs to be changed each time
+directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/v5.3/signal1_95_32652" # Directory : NOTE currently this needs to be changed each time
 #directory = "/root/Mu3eProject/WorkingVersion/signal1_1_1_all"
 if not os.path.exists(directory):
     os.makedirs(directory)
 
-file_name = "hits_data_signal1_1_1_test.csv"
+file_name = "hits_data_signal1_95_32652.csv"
 if os.path.exists(file_name): # Deletes old version of file if present
     os.remove(file_name)
 

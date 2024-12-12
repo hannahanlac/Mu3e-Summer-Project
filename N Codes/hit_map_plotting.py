@@ -41,8 +41,8 @@ def frameHitPlotting (frame_hits_data, layer, frame_number):
     print(hit_y_positions_absolute)
     
     # heatmap bin sizes - again need to change a bit as gpt helped
-    bin_size_x = pixel_size_x / 10
-    bin_size_y = pixel_size_y / 10
+    bin_size_x = pixel_size_x / 15
+    bin_size_y = pixel_size_y / 15
     x_bins = int(pixel_x_max / bin_size_x)
     y_bins = int(pixel_y_max / bin_size_y)
 
@@ -184,7 +184,7 @@ def layerHistPlottingFast (frame_hits_data):
 
 
 
-file_name = "/root/Mu3eProject/WorkingVersion/Mu3eProject/Frame_hits_csvs_signal1_1_1944629/Full_frame/hits_data_signal1_1_1_test.csv"
+file_name = "/root/Mu3eProject/WorkingVersion/Mu3eProject/v5.3/signal1_95_32652/hits_data_signal1_95_32652.csv"
 frame_hits_data = pd.read_csv(file_name)
 
 frame_number = 1 # This is superfluous but will use to get working (as now going over whole file)
@@ -194,3 +194,4 @@ frameHitPlotting(frame_hits_data, 3, frame_number) # Note currently not doing up
 frameHitPlotting(frame_hits_data, 4, frame_number)
 #layerHistPlottingSlow(frame_hits_data)
 layerHistPlottingFast(frame_hits_data)
+layerHistPlottingSlow(frame_hits_data)
