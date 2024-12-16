@@ -41,8 +41,8 @@ def frameHitPlotting (frame_hits_data, layer, frame_number):
     print(hit_y_positions_absolute)
     
     # heatmap bin sizes - again need to change a bit as gpt helped
-    bin_size_x = pixel_size_x / 15
-    bin_size_y = pixel_size_y / 15
+    bin_size_x = pixel_size_x / 10
+    bin_size_y = pixel_size_y / 10
     x_bins = int(pixel_x_max / bin_size_x)
     y_bins = int(pixel_y_max / bin_size_y)
 
