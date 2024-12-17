@@ -41,13 +41,15 @@ class Hit(object):
         else: return zt;
 
 def HitsInFrame(filename, frame_number):
-    """ Function that takes the file, and the frame number, and outputs a panda of the hit information for that frame"""
+    """ Takes the input root file, and the frame number, and outputs an array of the hit information for that frame
+    Inputs: Root file name, frame number
+    Outputs: Array of hit info for frame number
+    """
     inputFile = uproot.open(filename)
     mu3eTree = inputFile['mu3e'].arrays()
     mu3eFrame = ak.Array([mu3eTree[frame_number]])
     #print(mu3eFrame)
     frame_hits =[] # Initialize list for storing hit information
-    
     for hitsInFrame in mu3eFrame['hit_pixelid']: # Loop for iterating through frame hits
         for hitIndex in hitsInFrame:
             hit = Hit(hitIndex)
@@ -63,11 +65,8 @@ def HitsInFrame(filename, frame_number):
                 })
         break
 
-    hits_data_frame = pd.DataFrame(frame_hits)
-    #print(hits_data_frame)  # Display the DataFrame for verification
+    return frame_hits # Return awkward array with the frame hits data
 
-    return hits_data_frame  # Return the DataFrame for further use
-    #print(frame_hits)
 
 # if __name__ == "__main__":
 #     import sys
@@ -81,7 +80,7 @@ def HitsInFrame(filename, frame_number):
 
 #######################################################################################################
 # Inputting a file and testing the output
-file_path = "/root/Mu3eProject/RawData/v5.3/signal1_95_32652_execution_1_run_num_67021_sort.root"
+file_path = "/root/Mu3eProject/RawData/v5.3/signal1_96_32652_execution_1_run_num_789062_sort.root"
 print("Test with the file:", file_path) 
 print()
 
@@ -93,30 +92,28 @@ print('Total number of frames in file:',total_frames)
 print()
 
 # Create directory for file using
-directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/v5.3/signal1_95_32652" # Directory : NOTE currently this needs to be changed each time
-#directory = "/root/Mu3eProject/WorkingVersion/signal1_1_1_all"
+directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/v5.3/signal1_96_32652" # Directory : NOTE currently this needs to be changed each time
 if not os.path.exists(directory):
     os.makedirs(directory)
 
-file_name = "hits_data_signal1_95_32652.csv"
+file_name = "hits_data_signal1_96_32652_optimised_code.csv"
 if os.path.exists(file_name): # Deletes old version of file if present
     os.remove(file_name)
 
+
+all_hits = [] # List for all the frame hits to be appended to
+
 #Iterate over all frames in file
-frame_numbers = list(range(1, total_frames + 1)) 
+frame_numbers = list(range(0, 10)) 
 
 #Saving frame hit information as a csv
 for frame_number in frame_numbers:
     print("Frame number:", frame_number)
     print()
-    frame_hits_data = HitsInFrame(file_path, frame_number) # Use the function to output the panda for frame hit information
-
-    if frame_number ==1:
-         frame_hits_data.to_csv(os.path.join(directory, file_name), index=False, mode ='w') # Keeping this here for now whilst testing 
-
-    else:
-        frame_hits_data.to_csv(os.path.join(directory,file_name), index=False, mode='a', header=False)
-
-    #print(frame_hits_data)
+    frame_hits = HitsInFrame(file_path, frame_number)
+    all_hits.extend(frame_hits)
 
 
+all_frames_data = pd.DataFrame(all_hits)
+
+all_frames_data.to_csv(os.path.join(directory, file_name), index=False)
