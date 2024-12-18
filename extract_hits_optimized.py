@@ -40,13 +40,11 @@ class Hit(object):
             return zt - 6;
         else: return zt;
 
-def HitsInFrame(filename, frame_number):
+def HitsInFrame(frame_number, mu3eTrame):
     """ Takes the input root file, and the frame number, and outputs an array of the hit information for that frame
-    Inputs: Root file name, frame number
+    Inputs: mu3eTree: An array of all frames and the pixelIDs, frame number
     Outputs: Array of hit info for frame number
     """
-    inputFile = uproot.open(filename)
-    mu3eTree = inputFile['mu3e'].arrays()
     mu3eFrame = ak.Array([mu3eTree[frame_number]])
     #print(mu3eFrame)
     frame_hits =[] # Initialize list for storing hit information
@@ -64,7 +62,6 @@ def HitsInFrame(filename, frame_number):
                 'pixel_y': hit.y()
                 })
         break
-
     return frame_hits # Return awkward array with the frame hits data
 
 
@@ -84,10 +81,17 @@ file_path = "/root/Mu3eProject/RawData/v5.3/signal1_96_32652_execution_1_run_num
 print("Test with the file:", file_path) 
 print()
 
+
+
+
+
 #Find number of frames have:
-signal_file = uproot.open(file_path)
-frames = signal_file['mu3e'].arrays()
-total_frames = len(frames)
+
+
+signal_file = uproot.open(file_path) # Opens the file
+mu3eTree = signal_file['mu3e'].arrays() # Saves just the Mu3eTree that we need
+total_frames = len(mu3eTree)
+
 print('Total number of frames in file:',total_frames)
 print()
 
@@ -104,13 +108,13 @@ if os.path.exists(file_name): # Deletes old version of file if present
 all_hits = [] # List for all the frame hits to be appended to
 
 #Iterate over all frames in file
-frame_numbers = list(range(0, 10)) 
+frame_numbers = list(range(0, total_frames)) 
 
-#Saving frame hit information as a csv
+#Saving frame hit information as a csv  
 for frame_number in frame_numbers:
     print("Frame number:", frame_number)
     print()
-    frame_hits = HitsInFrame(file_path, frame_number)
+    frame_hits = HitsInFrame(frame_number, mu3eTree)
     all_hits.extend(frame_hits)
 
 
