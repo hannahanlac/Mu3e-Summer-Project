@@ -2,7 +2,7 @@ import uproot
 import numpy
 import matplotlib.pyplot as plt
 
-file = uproot.open(r"C:\Users\m4joh\OneDrive\University\Mu3e\Raw Simulation Data\signal1_1_1944629_execution_1_run_num_836827_sort.root")
+file = uproot.open(r"/app/Simulation Data/v5.3/signal1_95_32652_execution_1_run_num_67021_sort.root")
 
 keys = file.keys() # Accessing the file keys to see what info there is
 #print("Keys in the ROOT file:", keys)
