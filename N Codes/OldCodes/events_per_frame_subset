@@ -1,0 +1,95 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Sep 19 10:24:19 2024
+
+@author: nicky
+"""
+
+import uproot 
+import matplotlib.pyplot as plt
+import numpy as np
+
+
+
+
+
+
+
+
+file = uproot.open("C:/Users/nicky/OneDrive - University of Bristol/Documents/Bristol uni/Year 4/Mu3e/RawData/signal1_1_1944629_execution_1_run_num_836827_vertex.root")
+vertices = file["vertex"].arrays()
+
+#print(dir(vertices[0]))
+
+#print(len(vertices))
+
+
+
+### Code attempting to plot the number of mass events per frame by number of frames## 
+
+#Sub_range = 500 # Gives a sub-range for the range over which want to plot events
+
+
+frames= np.arange(0, len(vertices)) # Total number of frames array
+number_list = [] # List to count through and ammend the number of mass events
+
+# for i in range(3800, 4500):
+#     print(len(vertices[i].mmass))
+
+for i in range(0, len(vertices)):           # Iterate through frames and count mass events, and add
+    number_per_frame = len(vertices[i].mmass)
+   # print(number_per_frame)
+    number_list.append(number_per_frame) 
+number_array = np.array(number_list) # Final array of number of events 
+
+print(np.max(number_array))
+
+# for i in range(0, 100):
+#     print(len(vertices[i].mmass))
+#     print(vertices[i].mmass)
+
+#for i in range(20):
+ #print(vertices[i].mmass)
+ 
+print()
+print(vertices[25].mmass)
+
+print(np.sum(number_array))
+
+# Create the bar chart
+plt.bar(frames, number_array)
+plt.ylim()
+plt.xlim()
+# Add labels and title
+plt.xlabel('Frame')
+plt.ylabel('Number of events')
+plt.title('Number of events for each frame')
+
+# Show the chart
+plt.show()
+
+
+plt.scatter(frames, number_array, s=1)  # `s=1` sets the marker size to be very small
+plt.xlabel('Frame', fontsize=14)
+plt.ylabel('Number of events', fontsize=14)
+plt.title('Number of events for each frame', fontsize=16)
+
+plt.show()
+
+
+
+# Define bin size for downsampling
+bin_size = 500  # You can adjust this
+
+# Binning the data by averaging over bin_size frames
+frames_binned = np.arange(0, len(number_array), bin_size)
+number_binned = [np.sum(number_array[i:i + bin_size]) for i in frames_binned]
+
+# Plot the downsampled data
+plt.bar(frames_binned, number_binned, width=bin_size, edgecolor='black')
+plt.xlabel('Frame (Binned)')
+plt.ylabel('Number of events (Summed)')
+plt.title('Number of events for each binned frame')
+
+# Show the plot
+plt.show()
