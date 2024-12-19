@@ -64,7 +64,41 @@ def HitsInFrame(frame_number, mu3eTrame):
         break
     return frame_hits # Return awkward array with the frame hits data
 
+#######################################################################################################
 
+# Create directory for file saving
+directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/v5.3/signal1_99_32652" #NOTE: currently this needs to be changed each time
+if not os.path.exists(directory):
+    os.makedirs(directory)
+file_name = "hits_data_signal1_99_32652.csv"
+if os.path.exists(file_name): # Deletes old version of file if present
+    os.remove(file_name)
+
+# Inputting a file and state which one testing
+file_path = "/root/Mu3eProject/RawData/v5.3/signal1_99_32652_execution_1_run_num_561343_sort.root"
+print("Test with the file:", file_path) 
+print()
+
+# Open the root file, access the hits tree, find the total number of frames.
+signal_file = uproot.open(file_path) # Opens the file
+mu3eTree = signal_file['mu3e'].arrays() # Saves just the Mu3eTree that we need
+total_frames = len(mu3eTree)
+frame_numbers = list(range(0, total_frames)) 
+print('Total number of frames in file:',total_frames)
+
+#Iterate over all frames, collect hit information
+all_hits = [] # List for all the frame hits to be appended to  
+for frame_number in frame_numbers:
+    print("Frame number:", frame_number)
+    frame_hits = HitsInFrame(frame_number, mu3eTree)
+    all_hits.extend(frame_hits)
+
+# Converting array to Panda, and then saving as CSV 
+all_frames_data = pd.DataFrame(all_hits)
+all_frames_data.to_csv(os.path.join(directory, file_name), index=False) #NOTE: Might be better to have different format, but CSV fine for now
+
+
+#### If running in the command terminal: 
 # if __name__ == "__main__":
 #     import sys
 #     if len(sys.argv) == 1:
@@ -74,50 +108,3 @@ def HitsInFrame(frame_number, mu3eTrame):
     # for argument in sys.argv[1:]:
     #     print("File:", argument)
     #     printHitsInFirstFrame(argument)
-
-#######################################################################################################
-# Inputting a file and testing the output
-file_path = "/root/Mu3eProject/RawData/v5.3/signal1_96_32652_execution_1_run_num_789062_sort.root"
-print("Test with the file:", file_path) 
-print()
-
-
-
-
-
-#Find number of frames have:
-
-
-signal_file = uproot.open(file_path) # Opens the file
-mu3eTree = signal_file['mu3e'].arrays() # Saves just the Mu3eTree that we need
-total_frames = len(mu3eTree)
-
-print('Total number of frames in file:',total_frames)
-print()
-
-# Create directory for file using
-directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/v5.3/signal1_96_32652" # Directory : NOTE currently this needs to be changed each time
-if not os.path.exists(directory):
-    os.makedirs(directory)
-
-file_name = "hits_data_signal1_96_32652_optimised_code.csv"
-if os.path.exists(file_name): # Deletes old version of file if present
-    os.remove(file_name)
-
-
-all_hits = [] # List for all the frame hits to be appended to
-
-#Iterate over all frames in file
-frame_numbers = list(range(0, total_frames)) 
-
-#Saving frame hit information as a csv  
-for frame_number in frame_numbers:
-    print("Frame number:", frame_number)
-    print()
-    frame_hits = HitsInFrame(frame_number, mu3eTree)
-    all_hits.extend(frame_hits)
-
-
-all_frames_data = pd.DataFrame(all_hits)
-
-all_frames_data.to_csv(os.path.join(directory, file_name), index=False)
