@@ -181,7 +181,7 @@ def layerHistPlottingFast (frame_hits_data):
    plt.show()
 
 
-file_name = "/root/Mu3eProject/WorkingVersion/Mu3eProject/v5.3/signal1_99_32652/hits_data_signal1_99_32652.csv"
+file_name = "/root/Mu3eProject/WorkingVersion/Mu3eProject/DataFilesV5.3/signal1_99_32652/hits_data_signal1_99_32652.csv"
 frame_hits_data = pd.read_csv(file_name)
 
 frame_number = 1 # This is superfluous but will use to get working (as now going over whole file)

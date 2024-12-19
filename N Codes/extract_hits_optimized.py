@@ -98,7 +98,7 @@ all_frames_data = pd.DataFrame(all_hits)
 all_frames_data.to_csv(os.path.join(directory, file_name), index=False) #NOTE: Might be better to have different format, but CSV fine for now
 
 
-#### If running in the command terminal: 
+# Need to fix this bit later 
 # if __name__ == "__main__":
 #     import sys
 #     if len(sys.argv) == 1:
