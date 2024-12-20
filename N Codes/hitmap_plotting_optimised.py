@@ -3,118 +3,75 @@ import matplotlib.pyplot as plt
 import numpy as np
 import hist 
 
+pixel_size_y = 250 
+pixel_size_x = 256 
 
-def frameHitPlotting (frame_hits_data, layer, frame_number, station):
+layer_properties = {
+    1:{"ladders": 8, "chips": 6},
+    2:{"ladders": 10, "chips": 6},
+    3:{"ladders": 24, "chips": 17},
+    4:{"ladders": 28, "chips": 18},
+    }
+
+def frameHitDataPrep(frame_hits_data, layer, frame_number):
     """Function for plotting hitmaps for each frame. 
     Input: Panda of hitmap data for given frame
     Output: Hitmaps for each layer""" #NOTE: Only currently works for layer 1 - 4 not for upstream/downstream stations
-    n = int(layer)
-    layer_n_hits = frame_hits_data[frame_hits_data['layer'] == n]
-
-    if layer == 1:
-      ladder_max = 8 #No.Ladders from TDR layer 1
-      chip_max = 6 #No. Pixel chips per layer layer 1 TDR
-    
-    elif layer == 2:
-      ladder_max = 10 #No.Ladders from TDR layer 2
-      chip_max = 6 #No. Pixel chips per layer layer 2 TDR
-
-    elif layer ==3:
-       ladder_max = 24
-       chip_max = 17
-                            # NOTE: For 3 and 4 need to check the ladder numbers are correct for JUST the central barrel.
-    elif layer == 4:
-       ladder_max = 28
-       chip_max = 18
-
-    total_chips_central = chip_max
-    total_chips = 3 * chip_max  # Upstream + Central + Downstream
 
 
-    # Specifying the station used
-    if station ==0:
-       layer_n_hits = layer_n_hits[layer_n_hits['station'] == 0] # Just use data central barrel
-       station_name = "central barrel"
+    layer_n_hits = frame_hits_data[frame_hits_data['layer'] == layer] #Extract the hits information for the given layer
+    ladder_max = layer_properties[layer]["ladders"]
+    chip_max = layer_properties[layer]["chips"]
 
-    elif station ==1:
-        layer_n_hits = layer_n_hits[layer_n_hits['station'] == 1] # upstream data only
-        station_name = "upstream recurl station"
+    # Dimensions
+    pixel_x_max = chip_max * pixel_size_x
+    pixel_y_max = ladder_max * pixel_size_y 
 
-    elif station ==2:
-        layer_n_hits = layer_n_hits[layer_n_hits['station'] == 2] # Downstream data only
-        station_name = "downstream recurl station"
+    hit_x_positions_absolute = layer_n_hits['pixel_x'] + (layer_n_hits['chip']-1)*pixel_size_x
+    hit_y_positions_absolute = layer_n_hits['pixel_y'] + (layer_n_hits['ladder']-1)*pixel_size_y
 
-    elif station == "all":  
-      station_name = "recurl stations and central barrel"
-      chip_max = total_chips
-      chip_offset = layer_n_hits['station'].map({
-          1: 0,  # Upstream starts at 0
-          0: total_chips_central,  # Central starts after upstream
-          2: 2 * total_chips_central  # Downstream starts after central
-        })
+    return hit_x_positions_absolute, hit_y_positions_absolute, pixel_x_max, pixel_y_max, chip_max, ladder_max
 
-    
-
-    pixel_size_y = 250 # Checked in meeting and this correct
-    pixel_size_x = 256 
-    
-    # Really need to know the x and y max of these pixels! Think I can guess at 250 from the hitmap data Mark has given me?? 
-    # Define absolute hit positions
-    if station in [0, 1, 2]:  # Single station case, no offset
-        hit_x_positions_absolute = layer_n_hits['pixel_x'] + (layer_n_hits['chip'] - 1) * pixel_size_x
-
-    else:  # Combined stations case, apply offset
-        hit_x_positions_absolute = layer_n_hits['pixel_x'] + ((layer_n_hits['chip'] - 1) + chip_offset) * pixel_size_x
-
-    hit_y_positions_absolute = layer_n_hits['pixel_y'] + (layer_n_hits['ladder'] - 1) * pixel_size_y
-    
-    # print(hit_x_positions_absolute)
-    # print(hit_y_positions_absolute)
-    
+def HitmapPlotting (layer, hit_x_positions_absolute, hit_y_positions_absolute, pixel_x_max, pixel_y_max, chip_max, ladder_max):
     # heatmap bin sizes - again need to change a bit as gpt helped
-    bin_size_x = pixel_size_x /2
-    bin_size_y = pixel_size_y /2
-    x_bins = int(chip_max * pixel_size_x / bin_size_x)
-    y_bins = int(ladder_max * pixel_size_y / bin_size_y)
-
+    bin_size_x = pixel_size_x / 10
+    bin_size_y = pixel_size_y / 10
+    x_bins = int(pixel_x_max / bin_size_x)
+    y_bins = int(pixel_y_max / bin_size_y)
 
     #heatmap 
     heatmap, xedges, yedges = np.histogram2d(
     hit_x_positions_absolute, hit_y_positions_absolute, bins=[x_bins, y_bins]
     )
-
-
-
      # Define the figure and plot
     # plt.figure(figsize=(10, 8))
     # #plt.scatter(hit_x_positions_absolute, hit_y_positions_absolute, color='red', s=20, label='Hit') # Scatter from doing 1 frame at time
     # plt.imshow(heatmap.T, cmap='hot', interpolation='nearest')
 
     # Working code for heatmap: Need to update as some GPT helped
-    plt.figure(figsize=(14, 8))
-    heatmap_plot =plt.imshow(
+    plt.figure(figsize=(10, 8))
+    plt.imshow(
         heatmap.T, 
         cmap='hot', 
         interpolation='nearest', 
         origin='lower',  # To align with physical positions
-        extent=[0, chip_max * pixel_size_x, 0, ladder_max * pixel_size_y])  # Match the physical dimensions
-
+        extent=[0, pixel_x_max, 0, pixel_y_max])  # Match the physical dimensions
 
 
     # Set the axis limits
-    plt.xlim(0, chip_max * pixel_size_x)
-    plt.ylim(0, ladder_max * pixel_size_y)
+    plt.xlim(0, pixel_x_max)
+    plt.ylim(0, pixel_y_max)
 
     # Add axis labels and title
     plt.xlabel("Chip", fontsize=14)
     plt.ylabel("Ladder", fontsize=14)
-    plt.title(f"All frames Layer {n} {station_name} heatmap", fontsize=16)
+    plt.title(f"All frames Layer {layer} hits heatmap", fontsize=16)
 
     #Add custom ticks and labels for ladder (y-axis) and chip (x-axis) This needs editing
     plt.xticks(
         ticks=[i * pixel_size_x for i in range(chip_max)],
         labels=[str(i + 1) for i in range(chip_max)],
-        fontsize=10
+        fontsize=12
     )
     plt.yticks(
         ticks=[i * pixel_size_y  for i in range(ladder_max)],
@@ -149,7 +106,7 @@ def frameHitPlotting (frame_hits_data, layer, frame_number, station):
 def layerHistPlottingSlow (frame_hits_data):
   """Function that plots histogram of layer hits"""
   #n = int(layer)
-  layer_1_hits, layer_2_hits, layer_3_hits, layer_4_hits, layer_3_up, layer_3_down, layer_4_up, layer_4_down = (
+  layer_1_hits, layer_2_hits, layer_3_hits, layer_4_hits= (
      frame_hits_data[frame_hits_data['layer'] == 1], 
      frame_hits_data[frame_hits_data['layer'] == 2],
      frame_hits_data[frame_hits_data['layer'] == 3], 
@@ -217,16 +174,14 @@ file_name = "/root/Mu3eProject/WorkingVersion/Mu3eProject/DataFilesV5.3/signal1_
 frame_hits_data = pd.read_csv(file_name)
 
 frame_number = 1 # This is superfluous but will use to get working (as now going over whole file)
-# frameHitPlotting(frame_hits_data, 1, frame_number, 0)
-# frameHitPlotting(frame_hits_data, 2, frame_number, 0)
-frameHitPlotting(frame_hits_data, 3, frame_number, 0) # Note currently not doing up/down stream recurl stations
-frameHitPlotting(frame_hits_data, 4, frame_number, 0)
-# frameHitPlotting(frame_hits_data, 3, frame_number, 1)
-# frameHitPlotting(frame_hits_data, 3, frame_number, 2)
-# frameHitPlotting(frame_hits_data, 4, frame_number, 1)
-# frameHitPlotting(frame_hits_data, 4, frame_number, 2)
-frameHitPlotting(frame_hits_data, 3, frame_number, "all")
-frameHitPlotting(frame_hits_data, 4, frame_number, "all")
+
+for layer in range(1, 5):
+     hit_x, hit_y, x_max, y_max, chip_max, ladder_max = frameHitDataPrep(frame_hits_data, layer, frame_number)
+     HitmapPlotting(layer, hit_x, hit_y, x_max, y_max, chip_max, ladder_max)
+
+
+
 #layerHistPlottingSlow(frame_hits_data)
-# layerHistPlottingFast(frame_hits_data)
-# layerHistPlottingSlow(frame_hits_data)
+layerHistPlottingFast(frame_hits_data)
+layerHistPlottingSlow(frame_hits_data)
+

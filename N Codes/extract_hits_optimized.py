@@ -67,7 +67,7 @@ def HitsInFrame(frame_number, mu3eTrame):
 #######################################################################################################
 
 # Create directory for file saving
-directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/v5.3/signal1_99_32652" #NOTE: currently this needs to be changed each time
+directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/DataFilesV5.3/signal1_99_32652" #NOTE: currently this needs to be changed each time
 if not os.path.exists(directory):
     os.makedirs(directory)
 file_name = "hits_data_signal1_99_32652.csv"
