@@ -67,15 +67,17 @@ def HitsInFrame(frame_number, mu3eTrame):
 #######################################################################################################
 
 # Create directory for file saving
-directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/DataFilesV5.3/signal1_99_32652" #NOTE: currently this needs to be changed each time
+directory = "/app/ProcessedData/signal1_96_32652/csv" 
+#NOTE: currently this needs to be changed each time
 if not os.path.exists(directory):
     os.makedirs(directory)
-file_name = "hits_data_signal1_99_32652.csv"
+
+file_name = "hits_data_signal1_96_32652.csv"
 if os.path.exists(file_name): # Deletes old version of file if present
     os.remove(file_name)
 
 # Inputting a file and state which one testing
-file_path = "/root/Mu3eProject/RawData/v5.3/signal1_99_32652_execution_1_run_num_561343_sort.root"
+file_path = "/app/Simulation Data/v5.3/signal1_96_32652_execution_1_run_num_789062_sort.root"
 print("Test with the file:", file_path) 
 print()
 
@@ -89,7 +91,8 @@ print('Total number of frames in file:',total_frames)
 #Iterate over all frames, collect hit information
 all_hits = [] # List for all the frame hits to be appended to  
 for frame_number in frame_numbers:
-    print("Frame number:", frame_number)
+    print("Frame number:", frame_number, "/", total_frames)
+    #progress indicator for script - indicates run progress and how much left (compare w/ total frame number print just beforehand)
     frame_hits = HitsInFrame(frame_number, mu3eTree)
     all_hits.extend(frame_hits)
 

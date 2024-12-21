@@ -246,7 +246,7 @@ def layerHistPlottingFast (frame_hits_data):
    plt.show()
 
 
-file_name = "CSV File produce with extract hits code"
+file_name = "/app/ProcessedData/signal1_96_32652/csv/hits_data_signal1_96_32652.csv"
 frame_hits_data = pd.read_csv(file_name)
 
 frame_number = 1 # This is superfluous but will use to get working (as now going over whole file)
