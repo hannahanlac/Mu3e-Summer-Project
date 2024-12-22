@@ -7,7 +7,7 @@ from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 
 
-#loading original dataset, extract classes we need , cut off particles by set up eat standard and sort by pT value
+#loading original dataset, extract classes we need, cut off particles by set up eat standard and sort by pT (Transverse Momentum) value
 def Dataset(signal_dir,bkg_dir,eta_std):
     #load dataset
     signal = uproot.open(signal_dir)
