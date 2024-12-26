@@ -7,8 +7,12 @@ from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 
 
-#loading original dataset, extract classes we need, cut off particles by set up eat standard and sort by pT (Transverse Momentum) value
+#loading original dataset, extract classes we need, cut off particles by set up eta standard and sort by pT (Transverse Momentum) value
 def Dataset(signal_dir,bkg_dir,eta_std):
+    '''signal_dir: Path to signal data (particles of interest).
+    bkg_dir: Path to background data (irrelevant or noise particles).
+    eta_std: Maximum allowed pseudorapidity value.'''
+
     #load dataset
     signal = uproot.open(signal_dir)
     bkg = uproot.open(bkg_dir)

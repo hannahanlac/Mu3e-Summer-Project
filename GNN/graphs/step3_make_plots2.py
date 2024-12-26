@@ -246,6 +246,8 @@ def plotter():
     stdev, volatility = calc_volatility(metrics)
     accuracy_loss(metrics, outdir, model_name)
 
+    
+
     fpr, tpr, thresholds = roc_curve(list(map(int, list(y_test))), scores) #hacky but roc-curve object expects very specific dtype only
     thresholds = np.linspace(0,1,1001)
     thr_rates = []
