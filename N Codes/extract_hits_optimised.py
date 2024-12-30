@@ -48,8 +48,8 @@ def HitsInFrame(frame_number, mu3eTrame):
     mu3eFrame = ak.Array([mu3eTree[frame_number]])
     #print(mu3eFrame)
     frame_hits =[] # Initialize list for storing hit information
-    for hitsInFrame in mu3eFrame['hit_pixelid']: # Loop for iterating through frame hits
-        for hitIndex in hitsInFrame:
+    for hitsInFrame, timestamps, mc_indexes, mc_numbers in zip(mu3eFrame['hit_pixelid'], mu3eFrame['hit_timestamp'], mu3eFrame['hit_mc_i'], mu3eFrame['hit_mc_n']): # Loop for iterating through frame hits
+        for hitIndex, time, mcIndex , mcNumber in zip(hitsInFrame, timestamps, mc_indexes, mc_numbers):
             hit = Hit(hitIndex)
             frame_hits.append({ 
                 'frameNumber': frame_number,           # Append a dictionary with the hit information
@@ -59,7 +59,10 @@ def HitsInFrame(frame_number, mu3eTrame):
                 'ladder': hit.phi(),
                 'chip': hit.z(),
                 'pixel_x': hit.x(),
-                'pixel_y': hit.y()
+                'pixel_y': hit.y(),
+                'timestamp' : time,
+                'mcIndex' : mcIndex,
+                'mcNumber' : mcNumber
                 })
         break
     return frame_hits # Return awkward array with the frame hits data
@@ -81,7 +84,7 @@ print()
 
 # Open the root file, access the hits tree, find the total number of frames.
 signal_file = uproot.open(file_path) # Opens the file
-mu3eTree = signal_file['mu3e'].arrays() # Saves just the Mu3eTree that we need
+mu3eTree = signal_file['mu3e'].arrays(['hit_pixelid', 'hit_timestamp', 'hit_mc_i', 'hit_mc_n']) # Opens just the Mu3eTree branches we need
 total_frames = len(mu3eTree)
 frame_numbers = list(range(0, total_frames)) 
 print('Total number of frames in file:',total_frames)
@@ -92,6 +95,7 @@ for frame_number in frame_numbers:
     print("Frame number:", frame_number)
     frame_hits = HitsInFrame(frame_number, mu3eTree)
     all_hits.extend(frame_hits)
+    
 
 # Converting array to Panda, and then saving as CSV 
 all_frames_data = pd.DataFrame(all_hits)
