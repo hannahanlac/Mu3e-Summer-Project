@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import hist 
 
+####### Global variables ############
 pixel_size_y = 250 
 pixel_size_x = 256 
 
@@ -13,6 +14,7 @@ layer_properties = {
     4:{"ladders": 28, "chips": 18},
     }
 
+##############################################################
 def frameHitDataPrep(frame_hits_data, layer, frame_number):
     """Function for plotting hitmaps for each frame. 
     Input: Panda of hitmap data for given frame
@@ -86,64 +88,6 @@ def HitmapPlotting (layer, hit_x_positions_absolute, hit_y_positions_absolute, p
     plt.legend()
     plt.show()
  
-# Specify range of frames plots wanted:
-#frame_numbers = list(range(1,3))
-
-######### For doing one frame at a time: #######
-# for frame_number in frame_numbers:
-#     file_name = "/root/Mu3eProject/WorkingVersion/Mu3eProject/Frame_hits_csvs_signal1_1_1944629/hits_data_frame{}.csv".format(frame_number) # Open csv for frame number as panda. NOTE: This will only work if you have already created the hit data csv for the specific frame.
-#     frame_hits_data = pd.read_csv(file_name) 
-#     print('Frame number:', frame_number)
-#     print(frame_hits_data)
-#     frameHitPlotting(frame_hits_data, 1, frame_number)
-#     frameHitPlotting(frame_hits_data, 2, frame_number)
-#     frameHitPlotting(frame_hits_data, 3, frame_number) # Note currently not doing up/down stream recurl stations
-#     frameHitPlotting(frame_hits_data, 4, frame_number)
-
-# For doing for a whole file: ### 
-
-
-def layerHistPlottingSlow (frame_hits_data):
-  """Function that plots histogram of layer hits"""
-  #n = int(layer)
-  layer_1_hits, layer_2_hits, layer_3_hits, layer_4_hits= (
-     frame_hits_data[frame_hits_data['layer'] == 1], 
-     frame_hits_data[frame_hits_data['layer'] == 2],
-     frame_hits_data[frame_hits_data['layer'] == 3], 
-     frame_hits_data[frame_hits_data['layer'] == 4]
-  )
-
-  length_1 = len(layer_1_hits)
-  length_2 = len(layer_2_hits)
-  length_3 = len(layer_3_hits)
-  length_4 = len(layer_4_hits)
-  print(layer_1_hits, layer_2_hits, layer_3_hits, layer_4_hits)
-  print(length_1, length_2, length_3, length_4)
-
- # Data for plotting
-  layers = [1, 2, 3, 4]
-  hit_counts = [length_1, length_2, length_3, length_4]
-
-  # Create the bar plot
-  plt.figure(figsize=(8, 6))
-  plt.bar(layers, hit_counts, color='skyblue', edgecolor='black')
-
-  # Add labels and title
-  plt.xlabel('Layer', fontsize=14)
-  plt.ylabel('Number of Hits', fontsize=14)
-  plt.title('Hit Counts Per Layer', fontsize=16)
-
-    # Annotate bars with the hit count values
-  for i, count in enumerate(hit_counts):
-      plt.text(layers[i], count + 5, str(count), ha='center', fontsize=12)
-
-    # Set x-axis ticks to match layers
-  plt.xticks(layers, labels=[f"Layer {layer}" for layer in layers], fontsize=12)
-
-  # Show the plot
-  plt.tight_layout()
-  plt.show()
-
 def layerHistPlottingFast (frame_hits_data):
    """Better function for extracting hit info and plotting"""
    hits_per_layer = frame_hits_data['layer'].value_counts().sort_index()
@@ -170,6 +114,24 @@ def layerHistPlottingFast (frame_hits_data):
    plt.show()
 
 
+# Specify range of frames plots wanted:
+#frame_numbers = list(range(1,3))
+
+######### For doing one frame at a time: #######
+# for frame_number in frame_numbers:
+#     file_name = "/root/Mu3eProject/WorkingVersion/Mu3eProject/Frame_hits_csvs_signal1_1_1944629/hits_data_frame{}.csv".format(frame_number) # Open csv for frame number as panda. NOTE: This will only work if you have already created the hit data csv for the specific frame.
+#     frame_hits_data = pd.read_csv(file_name) 
+#     print('Frame number:', frame_number)
+#     print(frame_hits_data)
+#     frameHitPlotting(frame_hits_data, 1, frame_number)
+#     frameHitPlotting(frame_hits_data, 2, frame_number)
+#     frameHitPlotting(frame_hits_data, 3, frame_number) # Note currently not doing up/down stream recurl stations
+#     frameHitPlotting(frame_hits_data, 4, frame_number)
+
+# For doing for a whole file: ### 
+
+
+
 file_name = "/root/Mu3eProject/WorkingVersion/Mu3eProject/DataFilesV5.3/signal1_99_32652/hits_data_signal1_99_32652.csv"
 frame_hits_data = pd.read_csv(file_name)
 
@@ -180,8 +142,7 @@ for layer in range(1, 5):
      HitmapPlotting(layer, hit_x, hit_y, x_max, y_max, chip_max, ladder_max)
 
 
-
 #layerHistPlottingSlow(frame_hits_data)
 layerHistPlottingFast(frame_hits_data)
-layerHistPlottingSlow(frame_hits_data)
+
 
