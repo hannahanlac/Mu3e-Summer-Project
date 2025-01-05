@@ -7,11 +7,11 @@ from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
 
 
-#loading original dataset, extract classes we need, cut off particles by set up eta standard and sort by pT (Transverse Momentum) value
+#loading original dataset, extract classes we need, cut off particles by set up pixelx standard and sort by pixely,layer,station,ladder,chip (Transverse Momentum) value
 def Dataset(signal_dir):
     '''signal_dir: Path to signal data (particles of interest).
     bkg_dir: Path to background data (irrelevant or noise particles).
-    eta_std: Maximum allowed pseudorapidity value.'''
+    pixelx_std: Maximum allowed pseudorapidity value.'''
 
     #load dataset
     signal = uproot.open(signal_dir)
@@ -72,45 +72,42 @@ def fromiter_convert(arrays,split_ratio,true_trackID):
 
 
 #pad the jagged array to regular array, you can change the pad value you want
-def padding(phi,eta,pT,train_frame,train_eta,train_phi,test_pT,test_phi,test_eta):
+def padding(padding_values,train_data,test_data):
 
-    desired_length_1 = np.max(ak.num_tracks(train_frame))
-    train_frame = ak.to_num_trackspy(ak.fill_none(ak.pad_none(train_frame,desired_length_1),pT))
+    for key, value in train_data.items():
+        desired_length_1 = np.max(ak.num_tracks(value))
+        pad_value = padding_values[f"{key}_pad"]
+        train_data[key] = ak.to_numpy(ak.fill_none(ak.pad_none(value, desired_length_1), pad_value))
 
-    desired_length_2 = np.max(ak.num_tracks(train_eta))
-    train_eta = ak.to_num_trackspy(ak.fill_none(ak.pad_none(train_eta,desired_length_2),eta))
+    for key, value in test_data.items():
+        desired_length_2 = np.max(ak.num_tracks(value))
+        pad_value = padding_values[f"{key}_pad"]
+        test_data[key] = ak.to_numpy(ak.fill_none(ak.pad_none(value, desired_length_2), pad_value))
 
-    desired_length_3 = np.max(ak.num_tracks(train_phi))
-    train_phi = ak.to_num_trackspy(ak.fill_none(ak.pad_none(train_phi,desired_length_3),phi))
-
-    desired_length_4 = np.max(ak.num_tracks(test_pT))
-    test_pT = ak.to_num_trackspy(ak.fill_none(ak.pad_none(test_pT,desired_length_4),pT))
-
-    desired_length_5 = np.max(ak.num_tracks(test_eta))
-    test_eta = ak.to_num_trackspy(ak.fill_none(ak.pad_none(test_eta,desired_length_5),eta))
-
-    desired_length_6 = np.max(ak.num_tracks(test_phi))
-    test_phi = ak.to_num_trackspy(ak.fill_none(ak.pad_none(test_phi,desired_length_6),phi))
-
-    return train_frame,train_eta,train_phi,test_pT,test_phi,test_eta
+    return train_data,test_data
 
 
 #Normalization using Standard Score
-def Normalization(train_frame,train_eta,train_phi,test_pT,test_phi,test_eta):
+def Normalization(train_data,test_data):
     # define standard scaler
     scaler = StandardScaler()
-    # transform data
-    train_frame = scaler.fit_transform(train_frame)
-    train_eta = scaler.fit_transform(train_eta)
-    train_phi = scaler.fit_transform(train_phi)
 
-    test_pT = scaler.fit_transform(test_pT)
-    test_eta = scaler.fit_transform(test_eta)
-    test_phi = scaler.fit_transform(test_phi)
+    # transform data
+    for key, value in train_data.items():
+        train_data[key] = scaler.fit_transform(train_data[key])
     
-    num_tracks1 = int(len(train_eta))
+    for key, value in test_data.items():
+        test_data[key] = scaler.fit_transform(test_data[key])
+
+    
+    unique_tracks1 = np.unique(train_data[true_trackID])
+    num_tracks1 = int(len(unique_tracks1))
+    #number of unique tracks in training set
     mid1 = int(num_tracks1*0.5)
-    num_tracks2 = int(len(test_eta))
+
+    unique_tracks2 = np.unique(test_data[true_trackID])
+    num_tracks2 = int(len(unique_tracks2))
+    #number of unique tracks in testing set
     mid2 = int(num_tracks2*0.5)
 
     train_label_1 = np.ones(mid1)
@@ -123,7 +120,7 @@ def Normalization(train_frame,train_eta,train_phi,test_pT,test_phi,test_eta):
     test_label = np.concatenate((test_label_1,test_label_0))
     test_label = np.reshape(test_label,(num_tracks2,-1))
 
-    return train_frame,train_eta,train_phi,test_pT,test_phi,test_eta,train_label,test_label
+    return train_data,test_data,train_label,test_label
 
 
 
@@ -132,9 +129,19 @@ def Normalization(train_frame,train_eta,train_phi,test_pT,test_phi,test_eta):
 def MakeDataset():
     train_dir = "inputs/thanks_train.awkd"
     test_dir = "inputs/thanks_test.awkd"
-    phi = 10
-    eta = 10
-    pT = 0
+
+    padding_values = {
+        "frame_array": 0,
+        "pixelx_array": 0,
+        "pixely_array": 0,
+        "layer_array": 0,
+        "station_array": 0,
+        "ladder_array": 0,
+        "chip_array": 0,
+    }
+    #Dictionary of padding values for each parameter
+    #can change these padding values for physical/practical reasons as wish
+
     split_ratio = 0.75
     signal_dir = "inputs/delphes_output.root"
 
@@ -154,23 +161,23 @@ def MakeDataset():
 
 
     print ("Reading dataset...")
-    # Dataset(signal_dir,bkg_dir,eta_std)
+    # Dataset(signal_dir,bkg_dir,pixelx_std)
     layer_array,pixely_array,pixelx_array = Dataset(signal_dir)
     
     print ("Converting...")
-    # fromiter_convert(split_ratio,layer_array,pixely_array,pixelx_array,pT_array_0,eta_array_0,phi_array_0)
-    train_frame,train_eta,train_phi,test_pT,test_phi,test_eta = fromiter_convert(split_ratio,layer_array,pixely_array,pixelx_array)
+    # fromiter_convert(split_ratio,layer_array,pixely_array,pixelx_array,pixely,layer,station,ladder,chip_array_0,pixelx_array_0,frame_array_0)
+    train_frame,train_pixelx,train_frame,test_pixely,layer,station,ladder,chip,test_frame,test_pixelx = fromiter_convert(split_ratio,layer_array,pixely_array,pixelx_array)
 
     print ("Padding...")
-    # padding(phi,eta,pT,train_frame,train_eta,train_phi,test_pT,test_phi,test_eta)
-    train_frame,train_eta,train_phi,test_pT,test_phi,test_eta = padding(phi,eta,pT,train_frame,train_eta,train_phi,test_pT,test_phi,test_eta)
+    # padding(frame,pixelx,pixely,layer,station,ladder,chip,train_frame,train_pixelx,train_frame,test_pixely,layer,station,ladder,chip,test_frame,test_pixelx)
+    train_frame,train_pixelx,train_frame,test_pixely,layer,station,ladder,chip,test_frame,test_pixelx = padding(frame,pixelx,pixely,layer,station,ladder,chip,train_frame,train_pixelx,train_frame,test_pixely,layer,station,ladder,chip,test_frame,test_pixelx)
 
     print ("Normalizing...")
-    # Normalization(train_frame,train_eta,train_phi,test_pT,test_phi,test_eta)
-    train_frame,train_eta,train_phi,test_pT,test_phi,test_eta,train_label,test_label = Normalization(train_frame,train_eta,train_phi,test_pT,test_phi,test_eta)
+    # Normalization(train_frame,train_pixelx,train_frame,test_pixely,layer,station,ladder,chip,test_frame,test_pixelx)
+    train_frame,train_pixelx,train_frame,test_pixely,layer,station,ladder,chip,test_frame,test_pixelx,train_label,test_label = Normalization(train_frame,train_pixelx,train_frame,test_pixely,layer,station,ladder,chip,test_frame,test_pixelx)
     
     print ("Saving...")
-    awkward0.save(train_dir, {"label": train_label, "eta_array": train_eta,"phi_array": train_phi,"pT_array": train_frame}, mode="w")
-    awkward0.save(test_dir, {"label": test_label, "eta_array": test_eta,"phi_array": test_phi,"pT_array": test_pT}, mode="w")
+    awkward0.save(train_dir, {"label": train_label, "pixelx_array": train_pixelx,"frame_array": train_frame,"pixely,layer,station,ladder,chip_array": train_frame}, mode="w")
+    awkward0.save(test_dir, {"label": test_label, "pixelx_array": test_pixelx,"frame_array": test_frame,"pixely,layer,station,ladder,chip_array": test_pixely,layer,station,ladder,chip}, mode="w")
     print ("...Done")
 MakeDataset()
