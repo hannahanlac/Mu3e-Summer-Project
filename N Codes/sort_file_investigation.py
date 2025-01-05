@@ -16,8 +16,8 @@ print()
 
 
 #Trying to access 'hits pixelid' - Although still unsure what this is.
-print("The 1 frame hit data is:",hits1[1])
-hit_pixelid = hits1[1]["hit_pixelid"]
+print("The 1 frame hit data is:",hits1[0])
+hit_pixelid = hits1[0]["hit_pixelid"]
 print("Pixel IDs:", hit_pixelid)
 print()
 
@@ -36,6 +36,7 @@ mu3eFrame = ak.Array([mu3eTree[frame_number]])
 mu3eFrameTime = mu3eFrame["hit_timestamp"]
 mu3eFrameMCIndex = mu3eFrame["hit_mc_i"]
 mu3eFrameMCNumber = mu3eFrame["hit_mc_n"]
+mu3eFramePixelIds = mu3eFrame["hit_pixelid"]
 
 total_frames = len(mu3eTree)
 

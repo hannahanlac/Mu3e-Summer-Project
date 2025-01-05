@@ -10,33 +10,33 @@ def MCTree (file):
 
     det_branch = mc_tree["det"].arrays() # This now correctly calls the tid part
     print("det branch:")
-    print(det_branch[8005760])
+    print(det_branch[45245])
     print("Length of branch:", len(det_branch))
     print()
 
     print("tid branch:")
     tid_branch = mc_tree['tid'].arrays()
-    print(tid_branch[8005760])
+    print(tid_branch[45245])
     print("Length of branch:",len(tid_branch))
     print()
 
     print("pdg branch:")
     pdg_branch = mc_tree['pdg'].arrays()
-    print(pdg_branch[8005760])
+    print(pdg_branch[45245])
     print("Length of branch:",len(pdg_branch))
     print()
 
     print("hid branch:")
     hid_branch = mc_tree['hid'].arrays()
-    print(hid_branch[8005760])
+    print(hid_branch[45245])
     print("Length of branch:",len(hid_branch))
     print()
 
-    # print("hid_g branch:")
-    # hid_branch = mc_tree['hid'].arrays()
-    # print(hid_branch)
-    # print("Length of branch:",len(hid_branch))
-    # print()
+    print("hid_g branch:")
+    hid_branch = mc_tree['hid_g'].arrays()
+    print(hid_branch[45245])
+    print("Length of branch:",len(hid_branch))
+    print()
 
     # print("hid_g branch:")
     # hid_g_branch = mc_tree['hid_g'].arrays()
@@ -84,18 +84,14 @@ def mu3eMCTreeParts (file, frame_number):
 
 file = uproot.open("/root/Mu3eProject/RawData/v5.3/signal1_99_32652_execution_1_run_num_561343_sort.root")
 
-
-
-
-
 MCTree(file)
 
-mc_info = mu3eMCTreeParts(file, 0)
-# Print the contents of the mc_info dictionary dynamically
-for key, value in mc_info.items():
-    print(f"{key}: {value}")
+# mc_info = mu3eMCTreeParts(file, 0)
+# # Print the contents of the mc_info dictionary dynamically
+# for key, value in mc_info.items():
+#     print(f"{key}: {value}")
 
-print("Length of traj_ID:" ,len(mc_info['traj_ID'][0]))
-print("Length of traj_PID:" ,len(mc_info['traj_PID'][0]))
-print(ak.type(mc_info['traj_ID']))
+# print("Length of traj_ID:" ,len(mc_info['traj_ID'][0]))
+# print("Length of traj_PID:" ,len(mc_info['traj_PID'][0]))
+# print(ak.type(mc_info['traj_ID']))
 
