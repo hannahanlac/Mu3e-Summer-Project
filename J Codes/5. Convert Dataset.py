@@ -94,33 +94,18 @@ def Normalization(train_data,test_data):
 
     # transform data
     for key, value in train_data.items():
+        #value not being used from above, might just need train_data.keys and no value or .items
+        if key == 'true_trackID':  # Skip normalization for this key
+            continue
         train_data[key] = scaler.fit_transform(train_data[key])
     
     for key, value in test_data.items():
+        if key == 'true_trackID':  # Skip normalization for this key
+            continue
         test_data[key] = scaler.fit_transform(test_data[key])
 
-    
-    unique_tracks1 = np.unique(train_data[true_trackID])
-    num_tracks1 = int(len(unique_tracks1))
-    #number of unique tracks in training set
-    mid1 = int(num_tracks1*0.5)
 
-    unique_tracks2 = np.unique(test_data[true_trackID])
-    num_tracks2 = int(len(unique_tracks2))
-    #number of unique tracks in testing set
-    mid2 = int(num_tracks2*0.5)
-
-    train_label_1 = np.ones(mid1)
-    train_label_0 = np.zeros(mid1)
-    train_label = np.concatenate((train_label_1,train_label_0))
-    train_label = np.reshape(train_label,(num_tracks1,-1))
-
-    test_label_1 = np.ones(mid2)
-    test_label_0 = np.zeros(mid2)
-    test_label = np.concatenate((test_label_1,test_label_0))
-    test_label = np.reshape(test_label,(num_tracks2,-1))
-
-    return train_data,test_data,train_label,test_label
+    return train_data,test_data
 
 
 
