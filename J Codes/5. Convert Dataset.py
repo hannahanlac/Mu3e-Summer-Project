@@ -128,7 +128,7 @@ def MakeDataset():
     #can change these padding values for physical/practical reasons as wish
 
     split_ratio = 0.75
-    signal_dir = "inputs/delphes_output.root"
+    signal_dir = "ProcessedData/signal1_96_32652/csv/hits_data_signal1_96_32652.csv"
 
     arrays = {
     'frame_array': frame_array,

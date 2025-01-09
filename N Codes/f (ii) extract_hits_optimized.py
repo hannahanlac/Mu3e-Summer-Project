@@ -48,9 +48,11 @@ def HitsInFrame(frame_number, mu3eTrame):
     mu3eFrame = ak.Array([mu3eTree[frame_number]])
     #print(mu3eFrame)
     frame_hits =[] # Initialize list for storing hit information
-    for hitsInFrame in mu3eFrame['hit_pixelid']: # Loop for iterating through frame hits
-        for hitIndex in hitsInFrame:
+    for hitsInFrame, timestamps, mc_indexes, mc_numbers in zip(mu3eFrame['hit_pixelid'], mu3eFrame['hit_timestamp'], mu3eFrame['hit_mc_i'], mu3eFrame['hit_mc_n']): 
+        # Loop for iterating through frame hits
+        for hitIndex, time, mcIndex , mcNumber in zip(hitsInFrame, timestamps, mc_indexes, mc_numbers):
             hit = Hit(hitIndex)
+            mc_hit_info = mchits_data.get(mcIndex, {"tid", "hid", "hid_g"}) #Extract rel mc info based on index
             frame_hits.append({ 
                 'frameNumber': frame_number,           # Append a dictionary with the hit information
                 'hitIndex': hit.hitIndex, # Not sure actually need the hit index? Include for now - actually useful for denoting each one
@@ -59,7 +61,11 @@ def HitsInFrame(frame_number, mu3eTrame):
                 'ladder': hit.phi(),
                 'chip': hit.z(),
                 'pixel_x': hit.x(),
-                'pixel_y': hit.y()
+                'pixel_y': hit.y(),
+                'timestamp' :time,
+                'tid': mc_hit_info["tid"],
+                'hid': mc_hit_info["hid"],
+                'hid_g': mc_hit_info["hid_g"],
                 })
         break
     return frame_hits # Return awkward array with the frame hits data
@@ -84,6 +90,14 @@ print()
 # Open the root file, access the hits tree, find the total number of frames.
 signal_file = uproot.open(file_path) # Opens the file
 mu3eTree = signal_file['mu3e'].arrays() # Saves just the Mu3eTree that we need
+
+#Open the mchits tree, make a lookup dict preserving index no.
+mchits = signal_file["mu3e_mchits"].arrays(["tid", "hid", "hid_g"])
+print("Building mchits dictionary")
+mchits_data = mchits_data = {i: {"tid": tid, "hid": hid, "hid_g": hid_g} 
+               for i, (tid, hid, hid_g) in enumerate(zip(mchits["tid"], mchits["hid"], mchits["hid_g"]))}
+
+#Total frames
 total_frames = len(mu3eTree)
 frame_numbers = list(range(0, total_frames)) 
 print('Total number of frames in file:',total_frames)
