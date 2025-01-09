@@ -5,6 +5,7 @@ import awkward0
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
+import os
 
 
 #loading original dataset, extract classes we need, cut off particles by set up pixelx standard and sort by pixely,layer,station,ladder,chip (Transverse Momentum) value
@@ -26,7 +27,7 @@ def Dataset(signal_dir):
     station_array = signal_branch['Particle/Particle.Station'].array(library="ak")
     ladder_array = signal_branch['Particle/Particle.Ladder'].array(library="ak")
     chip_array = signal_branch['Particle/Particle.Chip'].array(library="ak")
-    true_trackID = signal_branch['Particle/Particle.True Track ID'].array(library="ak")
+    tid = signal_branch['Particle/Particle.tid'].array(library="ak")
     
     #sort hits by frame 
     index_1 = ak.argsort(frame_array, ascending = False)
@@ -38,15 +39,15 @@ def Dataset(signal_dir):
     station_array = station_array[index_1]
     ladder_array = ladder_array[index_1]
     chip_array = chip_array[index_1]
-    true_trackID = true_trackID[index_1]
+    tid = tid[index_1]
     
 
-    return frame_array,pixelx_array,pixely_array,layer_array,station_array,ladder_array,chip_array,true_trackID
+    return frame_array,pixelx_array,pixely_array,layer_array,station_array,ladder_array,chip_array,tid
 
 #split the whole dataset and make labels for training and testing
-def fromiter_convert(arrays,split_ratio,true_trackID):
+def fromiter_convert(arrays,split_ratio,tid):
 
-    unique_tracks = np.unique(true_trackID)
+    unique_tracks = np.unique(tid)
     np.random.shuffle(unique_tracks)
 
     num_tracks = int(len(unique_tracks))
@@ -57,10 +58,10 @@ def fromiter_convert(arrays,split_ratio,true_trackID):
     #assigns track IDs from 0 -> mid to be in our training dataset
     #assigns track IDs from mid -> rest to be in our testing dataset
 
-    train_mask = np.isin(arrays['true_trackID'], train_trackIDs)    
+    train_mask = np.isin(arrays['tid'], train_trackIDs)    
     test_mask = ~train_mask
     #Create boolean masks here where filter through our data
-    #Checks each value of true_trackID to see if selected for train_trackIDs, if does returns boolean mask True for that hit
+    #Checks each value of tid to see if selected for train_trackIDs, if does returns boolean mask True for that hit
     #Otherwise false. ~train_mask creates inverse of training mask. Hits not in training set assigned to testing set.
 
     train_data = {key: value[train_mask] for key, value in arrays.items()}
@@ -95,12 +96,12 @@ def Normalization(train_data,test_data):
     # transform data
     for key, value in train_data.items():
         #value not being used from above, might just need train_data.keys and no value or .items
-        if key == 'true_trackID':  # Skip normalization for this key
+        if key == 'tid':  # Skip normalization for this key
             continue
         train_data[key] = scaler.fit_transform(train_data[key])
     
     for key, value in test_data.items():
-        if key == 'true_trackID':  # Skip normalization for this key
+        if key == 'tid':  # Skip normalization for this key
             continue
         test_data[key] = scaler.fit_transform(test_data[key])
 
@@ -112,8 +113,14 @@ def Normalization(train_data,test_data):
 
 #Finally making the dataset
 def MakeDataset():
-    train_dir = "inputs/thanks_train.awkd"
-    test_dir = "inputs/thanks_test.awkd"
+    train_dir = "ProcessedData/signal1_96_32652/train_data"
+    test_dir = "ProcessedData/signal1_96_32652/test_data"
+
+    if not os.path.exists(train_dir):
+        os.makedirs(train_dir)
+
+    if not os.path.exists(test_dir):
+        os.makedirs(test_dir)
 
     padding_values = {
         "frame_array": 0,
@@ -127,8 +134,8 @@ def MakeDataset():
     #Dictionary of padding values for each parameter
     #can change these padding values for physical/practical reasons as wish
 
-    split_ratio = 0.75
     signal_dir = "ProcessedData/signal1_96_32652/csv/hits_data_signal1_96_32652.csv"
+    split_ratio = 0.75
 
     arrays = {
     'frame_array': frame_array,
@@ -138,7 +145,7 @@ def MakeDataset():
     'station_array': station_array,
     'ladder_array': ladder_array,
     'chip_array': chip_array,
-    'true_trackID': true_trackID,
+    'tid': tid,
     }
 
     train_data, test_data = split_dataset(0.75, arrays)
@@ -162,7 +169,7 @@ def MakeDataset():
     train_frame,train_pixelx,train_frame,test_pixely,layer,station,ladder,chip,test_frame,test_pixelx,train_label,test_label = Normalization(train_frame,train_pixelx,train_frame,test_pixely,layer,station,ladder,chip,test_frame,test_pixelx)
     
     print ("Saving...")
-    awkward0.save(train_dir, {"label": train_label, "pixelx_array": train_pixelx,"frame_array": train_frame,"pixely,layer,station,ladder,chip_array": train_frame}, mode="w")
-    awkward0.save(test_dir, {"label": test_label, "pixelx_array": test_pixelx,"frame_array": test_frame,"pixely,layer,station,ladder,chip_array": test_pixely,layer,station,ladder,chip}, mode="w")
+    awkward0.save(train_dir, {"pixelx_array": train_pixelx,"frame_array": train_frame,"pixely,layer,station,ladder,chip_array": train_frame}, mode="w")
+    awkward0.save(test_dir, {"pixelx_array": test_pixelx,"frame_array": test_frame,"pixely,layer,station,ladder,chip_array": test_pixely,layer,station,ladder,chip}, mode="w")
     print ("...Done")
 MakeDataset()
