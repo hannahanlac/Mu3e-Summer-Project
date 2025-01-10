@@ -38,7 +38,8 @@ def Dataset(signal_dir):
 #split the whole dataset and make labels for training and testing
 def fromiter_convert(split_ratio, signal_arrays):
 
-    unique_tracks = np.unique(signal_arrays['tid'])
+    unique_tracks = np.unique(ak.to_numpy(signal_arrays['tid_array']))
+    # Convert to NumPy array for shuffling
     np.random.shuffle(unique_tracks)
 
     num_tracks = int(len(unique_tracks))
@@ -49,7 +50,7 @@ def fromiter_convert(split_ratio, signal_arrays):
     #assigns track IDs from 0 -> mid to be in our training dataset
     #assigns track IDs from mid -> rest to be in our testing dataset
 
-    train_mask = np.isin(signal_arrays['tid'], train_trackIDs)    
+    train_mask = np.isin(signal_arrays['tid_array'], train_trackIDs)    
     test_mask = ~train_mask
     #Create boolean masks here where filter through our data
     #Checks each value of tid to see if selected for train_trackIDs, if does returns boolean mask True for that hit
@@ -87,12 +88,12 @@ def Normalization(train_data,test_data):
     # transform data
     for key, value in train_data.items():
         #value not being used from above, might just need train_data.keys and no value or .items
-        if key == 'tid':  # Skip normalization for this key
+        if key == 'tid_array':  # Skip normalization for this key
             continue
         train_data[key] = scaler.fit_transform(train_data[key])
     
     for key, value in test_data.items():
-        if key == 'tid':  # Skip normalization for this key
+        if key == 'tid_array':  # Skip normalization for this key
             continue
         test_data[key] = scaler.fit_transform(test_data[key])
 
