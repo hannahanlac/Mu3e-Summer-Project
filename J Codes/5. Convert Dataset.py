@@ -1,5 +1,4 @@
 import numpy as np
-import uproot
 import awkward as ak
 import awkward0
 import pandas as pd
@@ -37,9 +36,9 @@ def Dataset(signal_dir):
     return signal_arrays
 
 #split the whole dataset and make labels for training and testing
-def fromiter_convert(signal_arrays,split_ratio,tid):
+def fromiter_convert(split_ratio, signal_arrays):
 
-    unique_tracks = np.unique(tid)
+    unique_tracks = np.unique(signal_arrays['tid'])
     np.random.shuffle(unique_tracks)
 
     num_tracks = int(len(unique_tracks))
@@ -104,7 +103,7 @@ def Normalization(train_data,test_data):
 
 
 #Finally making the dataset
-def MakeDataset(signal_arrays):
+def MakeDataset():
     train_dir = "ProcessedData/signal1_96_32652/train_data"
     test_dir = "ProcessedData/signal1_96_32652/test_data"
 
@@ -113,6 +112,14 @@ def MakeDataset(signal_arrays):
 
     if not os.path.exists(test_dir):
         os.makedirs(test_dir)
+
+    train_file = os.path.join(train_dir, "train_data.parquet")
+    if os.path.exists(train_file): # Deletes old version of file if present
+        os.remove(train_file)
+
+    test_file = os.path.join(test_dir, "test_data.parquet")
+    if os.path.exists(test_file): # Deletes old version of file if present
+        os.remove(test_file)
 
     padding_values = {
         "frame_array": 0,
@@ -129,28 +136,28 @@ def MakeDataset(signal_arrays):
     signal_dir = "ProcessedData/signal1_96_32652/csv/hits_data_signal1_96_32652.csv"
     split_ratio = 0.75
 
-    train_data, test_data = split_dataset(0.75, signal_arrays)
-
-
 
     print ("Reading dataset...")
-    # Dataset(signal_dir,bkg_dir,pixelx_std)
-    layer_array,pixely_array,pixelx_array = Dataset(signal_dir)
+    # Dataset(signal_dir)
+    signal_arrays = Dataset(signal_dir)
     
     print ("Converting...")
-    # fromiter_convert(split_ratio,layer_array,pixely_array,pixelx_array,pixely,layer,station,ladder,chip_array_0,pixelx_array_0,frame_array_0)
-    train_frame,train_pixelx,train_frame,test_pixely,layer,station,ladder,chip,test_frame,test_pixelx = fromiter_convert(split_ratio,layer_array,pixely_array,pixelx_array)
+    # fromiter_convert(split_ratio, signal_arrays)
+    train_data, test_data = fromiter_convert(split_ratio, signal_arrays)
 
     print ("Padding...")
-    # padding(frame,pixelx,pixely,layer,station,ladder,chip,train_frame,train_pixelx,train_frame,test_pixely,layer,station,ladder,chip,test_frame,test_pixelx)
-    train_frame,train_pixelx,train_frame,test_pixely,layer,station,ladder,chip,test_frame,test_pixelx = padding(frame,pixelx,pixely,layer,station,ladder,chip,train_frame,train_pixelx,train_frame,test_pixely,layer,station,ladder,chip,test_frame,test_pixelx)
+    # padding(padding_values,train_data,test_data)
+    train_data = padding(padding_values, train_data)
+    test_data = padding(padding_values, test_data)
 
     print ("Normalizing...")
-    # Normalization(train_frame,train_pixelx,train_frame,test_pixely,layer,station,ladder,chip,test_frame,test_pixelx)
-    train_frame,train_pixelx,train_frame,test_pixely,layer,station,ladder,chip,test_frame,test_pixelx,train_label,test_label = Normalization(train_frame,train_pixelx,train_frame,test_pixely,layer,station,ladder,chip,test_frame,test_pixelx)
+    # Normalization(train_data,test_data)
+    train_data, test_data = Normalization(train_data, test_data)
     
     print ("Saving...")
-    awkward0.save(train_dir, {"pixelx_array": train_pixelx,"frame_array": train_frame,"pixely,layer,station,ladder,chip_array": train_frame}, mode="w")
-    awkward0.save(test_dir, {"pixelx_array": test_pixelx,"frame_array": test_frame,"pixely,layer,station,ladder,chip_array": test_pixely,layer,station,ladder,chip}, mode="w")
+    ak.to_parquet(train_data, train_file) 
+    ak.to_parquet(test_data, test_file)
+
     print ("...Done")
+
 MakeDataset()
