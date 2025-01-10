@@ -54,14 +54,14 @@ def HitsInFrame(frame_number, mu3eTrame):
             hit = Hit(hitIndex)
             mc_hit_info = mchits_data.get(mcIndex, {"tid", "hid", "hid_g"}) #Extract rel mc info based on index
             frame_hits.append({ 
-                'frameNumber': frame_number,           # Append a dictionary with the hit information
+                'frame': frame_number,           # Append a dictionary with the hit information
                 'hitIndex': hit.hitIndex, # Not sure actually need the hit index? Include for now - actually useful for denoting each one
                 'station': hit.station(),
                 'layer': hit.layer(),
                 'ladder': hit.phi(),
                 'chip': hit.z(),
-                'pixel_x': hit.x(),
-                'pixel_y': hit.y(),
+                'pixelx': hit.x(),
+                'pixely': hit.y(),
                 'timestamp' :time,
                 'tid': mc_hit_info["tid"],
                 'hid': mc_hit_info["hid"],

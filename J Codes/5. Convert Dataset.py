@@ -10,42 +10,34 @@ import os
 
 #loading original dataset, extract classes we need, cut off particles by set up pixelx standard and sort by pixely,layer,station,ladder,chip (Transverse Momentum) value
 def Dataset(signal_dir):
-    '''signal_dir: Path to signal data (particles of interest).
-    bkg_dir: Path to background data (irrelevant or noise particles).
-    pixelx_std: Maximum allowed pseudorapidity value.'''
+    '''signal_dir: Path to signal data (particles of interest)'''
 
-    #load dataset
-    signal = uproot.open(signal_dir)
+    # Load the CSV into a pandas DataFrame
+    dataframe = pd.read_csv(signal_dir)
 
     #extract spatial (layer, station, ladder, chip, pixel x, pixel y) classes from original dataset
-    signal_branch = signal['Delphes;1']
-    # Check this, I don't think csv is that complicated (i.e., multi-layered), need specify
-    frame_array = signal_branch['Particle/Particle.PT'].array(library="ak")
-    pixelx_array = signal_branch['Particle/Particle.Pixel x'].array(library="ak")
-    pixely_array = signal_branch['Particle/Particle.Pixel y'].array(library="ak")
-    layer_array = signal_branch['Particle/Particle.Layer'].array(library="ak")
-    station_array = signal_branch['Particle/Particle.Station'].array(library="ak")
-    ladder_array = signal_branch['Particle/Particle.Ladder'].array(library="ak")
-    chip_array = signal_branch['Particle/Particle.Chip'].array(library="ak")
-    tid = signal_branch['Particle/Particle.tid'].array(library="ak")
+    #and convert to awkward array
+    signal_arrays = ak.Array({
+        'frame_array': dataframe['frame'].to_numpy(),
+        'pixelx_array' : dataframe['pixelx'].to_numpy(),
+        'pixely_array' : dataframe['pixely'].to_numpy(),
+        'layer_array' :  dataframe['layer'].to_numpy(),
+        'station_array' : dataframe['station'].to_numpy(),
+        'ladder_array' : dataframe['ladder'].to_numpy(),
+        'chip_array' : dataframe['chip'].to_numpy(),
+        'tid_array' : dataframe['tid'].to_numpy(),
+    })
     
-    #sort hits by frame 
-    index_1 = ak.argsort(frame_array, ascending = False)
+    #sort hit arrays by frame 
+    sorting_index = ak.argsort(signal_arrays['frame_array'], ascending = False)
     
-    frame_array = frame_array[index_1]
-    pixelx_array = pixelx_array[index_1]
-    pixely_array = pixely_array[index_1]
-    layer_array = layer_array[index_1]
-    station_array = station_array[index_1]
-    ladder_array = ladder_array[index_1]
-    chip_array = chip_array[index_1]
-    tid = tid[index_1]
+    signal_arrays = signal_arrays[sorting_index]
     
 
-    return frame_array,pixelx_array,pixely_array,layer_array,station_array,ladder_array,chip_array,tid
+    return signal_arrays
 
 #split the whole dataset and make labels for training and testing
-def fromiter_convert(arrays,split_ratio,tid):
+def fromiter_convert(signal_arrays,split_ratio,tid):
 
     unique_tracks = np.unique(tid)
     np.random.shuffle(unique_tracks)
@@ -58,14 +50,14 @@ def fromiter_convert(arrays,split_ratio,tid):
     #assigns track IDs from 0 -> mid to be in our training dataset
     #assigns track IDs from mid -> rest to be in our testing dataset
 
-    train_mask = np.isin(arrays['tid'], train_trackIDs)    
+    train_mask = np.isin(signal_arrays['tid'], train_trackIDs)    
     test_mask = ~train_mask
     #Create boolean masks here where filter through our data
     #Checks each value of tid to see if selected for train_trackIDs, if does returns boolean mask True for that hit
     #Otherwise false. ~train_mask creates inverse of training mask. Hits not in training set assigned to testing set.
 
-    train_data = {key: value[train_mask] for key, value in arrays.items()}
-    test_data = {key: value[test_mask] for key, value in arrays.items()}
+    train_data = {key: value[train_mask] for key, value in signal_arrays.items()}
+    test_data = {key: value[test_mask] for key, value in signal_arrays.items()}
     #build new dictionaries with desired training and testing split based off track ID
 
     return train_data,test_data
@@ -112,7 +104,7 @@ def Normalization(train_data,test_data):
 
 
 #Finally making the dataset
-def MakeDataset():
+def MakeDataset(signal_arrays):
     train_dir = "ProcessedData/signal1_96_32652/train_data"
     test_dir = "ProcessedData/signal1_96_32652/test_data"
 
@@ -137,18 +129,7 @@ def MakeDataset():
     signal_dir = "ProcessedData/signal1_96_32652/csv/hits_data_signal1_96_32652.csv"
     split_ratio = 0.75
 
-    arrays = {
-    'frame_array': frame_array,
-    'pixelx_array': pixelx_array,
-    'pixely_array': pixely_array,
-    'layer_array': layer_array,
-    'station_array': station_array,
-    'ladder_array': ladder_array,
-    'chip_array': chip_array,
-    'tid': tid,
-    }
-
-    train_data, test_data = split_dataset(0.75, arrays)
+    train_data, test_data = split_dataset(0.75, signal_arrays)
 
 
 
