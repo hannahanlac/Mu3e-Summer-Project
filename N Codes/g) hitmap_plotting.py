@@ -30,7 +30,7 @@ def frameHitPlotting (frame_hits_data, layer, frame_number, station):
     elif layer ==3:
        ladder_max = 24
        chip_max = 17
-                            # NOTE: For 3 and 4 need to check the ladder numbers are correct for JUST the central barrel.
+                            # NOTE: For 3 and 4 need to check the ladder numbers are correct for JUST the Central Barrel.
     elif layer == 4:
        ladder_max = 28
        chip_max = 18
@@ -44,19 +44,19 @@ def frameHitPlotting (frame_hits_data, layer, frame_number, station):
 
     # Specifying the station used
     if station ==0:
-       layer_n_hits = layer_n_hits[layer_n_hits['station'] == 0] # Just use data central barrel
-       station_name = "central barrel"
+       layer_n_hits = layer_n_hits[layer_n_hits['station'] == 0] # Just use data Central Barrel
+       station_name = "Central Barrel"
 
     elif station ==1:
         layer_n_hits = layer_n_hits[layer_n_hits['station'] == 1] # upstream data only
-        station_name = "upstream recurl station"
+        station_name = "Upstream Recurl Station"
 
     elif station ==2:
         layer_n_hits = layer_n_hits[layer_n_hits['station'] == 2] # Downstream data only
-        station_name = "downstream recurl station"
+        station_name = "Downstream Recurl Station"
 
     elif station == "all":  
-      station_name = "recurl stations and central barrel"
+      station_name = "Recurl Stations and Central Barrel"
       chip_max = total_chips
       chip_offset = layer_n_hits['station'].map({
           1: 0,  # Upstream starts at 0
@@ -73,12 +73,12 @@ def frameHitPlotting (frame_hits_data, layer, frame_number, station):
 
     # Define absolute hit positions
     if station in [0, 1, 2]:  # Single station case, no offset
-        hit_x_positions_absolute = layer_n_hits['pixel_x'] + (layer_n_hits['chip'] - 1) * pixel_size_x
+        hit_x_positions_absolute = layer_n_hits['pixelx'] + (layer_n_hits['chip'] - 1) * pixel_size_x
 
     else:  # Combined stations case, apply offset
-        hit_x_positions_absolute = layer_n_hits['pixel_x'] + ((layer_n_hits['chip'] - 1) + chip_offset) * pixel_size_x
+        hit_x_positions_absolute = layer_n_hits['pixelx'] + ((layer_n_hits['chip'] - 1) + chip_offset) * pixel_size_x
 
-    hit_y_positions_absolute = layer_n_hits['pixel_y'] + (layer_n_hits['ladder'] - 1) * pixel_size_y
+    hit_y_positions_absolute = layer_n_hits['pixely'] + (layer_n_hits['ladder'] - 1) * pixel_size_y
 #Computes absolute x and y positions of hits based on chip and ladder.
 #Why x and y treated differently depending on if single station or combined case? ************
     
@@ -127,7 +127,7 @@ def frameHitPlotting (frame_hits_data, layer, frame_number, station):
     # Add axis labels and title
     plt.xlabel("Chip", fontsize=14)
     plt.ylabel("Ladder", fontsize=14)
-    plt.title(f"All frames Layer {n} {station_name} heatmap", fontsize=16)
+    plt.title(f"All Frames Layer {n} {station_name} Heatmap", fontsize=16)
 
     #Add custom ticks and labels for ladder (y-axis) and chip (x-axis) This needs editing
     plt.xticks(
@@ -164,7 +164,7 @@ def frameHitPlotting (frame_hits_data, layer, frame_number, station):
 #Now call function just been defining and use it, specifying parameters to use it on
 #     frameHitPlotting(frame_hits_data, 1, frame_number)
 #     frameHitPlotting(frame_hits_data, 2, frame_number)
-#     frameHitPlotting(frame_hits_data, 3, frame_number) # Note currently not doing up/down stream recurl stations
+#     frameHitPlotting(frame_hits_data, 3, frame_number) # Note currently not doing up/down stream Recurl Stations
 #     frameHitPlotting(frame_hits_data, 4, frame_number)
 
 
@@ -250,16 +250,22 @@ file_name = "/app/ProcessedData/signal1_96_32652/csv/hits_data_signal1_96_32652.
 frame_hits_data = pd.read_csv(file_name)
 
 frame_number = 1 # This is superfluous but will use to get working (as now going over whole file)
-# frameHitPlotting(frame_hits_data, 1, frame_number, 0)
-# frameHitPlotting(frame_hits_data, 2, frame_number, 0)
-frameHitPlotting(frame_hits_data, 3, frame_number, 0) # Note currently not doing up/down stream recurl stations
-frameHitPlotting(frame_hits_data, 4, frame_number, 0)
+frameHitPlotting(frame_hits_data, 1, frame_number, 0)
+frameHitPlotting(frame_hits_data, 2, frame_number, 0)
+# frameHitPlotting(frame_hits_data, 3, frame_number, 0) # Note currently not doing up/down stream Recurl Stations
+# frameHitPlotting(frame_hits_data, 4, frame_number, 0)
 # frameHitPlotting(frame_hits_data, 3, frame_number, 1)
 # frameHitPlotting(frame_hits_data, 3, frame_number, 2)
 # frameHitPlotting(frame_hits_data, 4, frame_number, 1)
 # frameHitPlotting(frame_hits_data, 4, frame_number, 2)
 frameHitPlotting(frame_hits_data, 3, frame_number, "all")
 frameHitPlotting(frame_hits_data, 4, frame_number, "all")
+
+#frameHitPlotting(frame_hits_data, 1, frame_number, "all")
+#frameHitPlotting(frame_hits_data, 2, frame_number, "all")
+#layer 1 + 2 should not extend to Recurl Stations, why these then produce different hitmaps
+#compared to when just do central above?
+
 # layerHistPlottingSlow(frame_hits_data)
 # layerHistPlottingFast(frame_hits_data)
 # layerHistPlottingSlow(frame_hits_data)
