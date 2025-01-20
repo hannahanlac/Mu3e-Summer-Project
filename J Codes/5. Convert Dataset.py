@@ -56,9 +56,14 @@ def fromiter_convert(split_ratio, signal_arrays):
     #Checks each value of tid to see if selected for train_trackIDs, if does returns boolean mask True for that hit
     #Otherwise false. ~train_mask creates inverse of training mask. Hits not in training set assigned to testing set.
 
-    train_data = {key: value[train_mask] for key, value in signal_arrays.items()}
-    test_data = {key: value[test_mask] for key, value in signal_arrays.items()}
-    #build new dictionaries with desired training and testing split based off track ID
+    train_data = {key: signal_arrays[key][train_mask] for key in signal_arrays.fields}
+    test_data = {key: signal_arrays[key][test_mask] for key in signal_arrays.fields}
+
+    #build new awkward arrays with desired training and testing split based off track ID in a dictionary
+
+    # Convert dictionaries to Awkward Arrays
+    train_data = ak.Array(train_data)
+    test_data = ak.Array(test_data)
 
     return train_data,test_data
 
@@ -67,15 +72,27 @@ def fromiter_convert(split_ratio, signal_arrays):
 #pad the jagged array to regular array, you can change the pad value you want
 def padding(padding_values,train_data,test_data):
 
-    for key, value in train_data.items():
-        desired_length_1 = np.max(ak.num_tracks(value))
-        pad_value = padding_values[f"{key}_pad"]
-        train_data[key] = ak.to_numpy(ak.fill_none(ak.pad_none(value, desired_length_1), pad_value))
+    for key in train_data.fields:
+        value = train_data[key]
 
-    for key, value in test_data.items():
-        desired_length_2 = np.max(ak.num_tracks(value))
+        if ak.num(value).ndim == 1:  # Check if the array is flat
+            continue  # Skip padding for flat arrays
+
+        desired_length_1 = ak.max(ak.num(value))
         pad_value = padding_values[f"{key}_pad"]
-        test_data[key] = ak.to_numpy(ak.fill_none(ak.pad_none(value, desired_length_2), pad_value))
+
+        train_data[key] = ak.fill_none(ak.pad_none(value, desired_length_1), pad_value)
+
+    for key in test_data.fields:
+        value = test_data[key]
+
+        if ak.num(value).ndim == 1:  # Check if the array is flat
+            continue  # Skip padding for flat arrays
+
+        desired_length_2 = ak.max(ak.num(value))
+        pad_value = padding_values[f"{key}_pad"]
+
+        test_data[key] = ak.fill_none(ak.pad_none(value, desired_length_2), pad_value)
 
     return train_data,test_data
 
@@ -148,8 +165,7 @@ def MakeDataset():
 
     print ("Padding...")
     # padding(padding_values,train_data,test_data)
-    train_data = padding(padding_values, train_data)
-    test_data = padding(padding_values, test_data)
+    train_data, test_data = padding(padding_values, train_data, test_data)
 
     print ("Normalizing...")
     # Normalization(train_data,test_data)
