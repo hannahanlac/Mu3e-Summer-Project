@@ -75,24 +75,24 @@ def padding(padding_values,train_data,test_data):
     for key in train_data.fields:
         value = train_data[key]
 
-        if ak.num(value).ndim == 1:  # Check if the array is flat
+        if len(value) == 1:  # Check if the array is flat
             continue  # Skip padding for flat arrays
 
-        desired_length_1 = ak.max(ak.num(value))
-        pad_value = padding_values[f"{key}_pad"]
+        desired_length_1 = np.max(len(value))
+        pad_value = padding_values[f"{key}"]
 
-        train_data[key] = ak.fill_none(ak.pad_none(value, desired_length_1), pad_value)
+        train_data[key] = ak.to_numpy(ak.fill_none(ak.pad_none(value, desired_length_1, 0), pad_value))
 
     for key in test_data.fields:
         value = test_data[key]
 
-        if ak.num(value).ndim == 1:  # Check if the array is flat
+        if len(value) == 1:  # Check if the array is flat
             continue  # Skip padding for flat arrays
 
-        desired_length_2 = ak.max(ak.num(value))
-        pad_value = padding_values[f"{key}_pad"]
+        desired_length_2 = np.max(len(value))
+        pad_value = padding_values[f"{key}"]
 
-        test_data[key] = ak.fill_none(ak.pad_none(value, desired_length_2), pad_value)
+        test_data[key] = ak.to_numpy(ak.fill_none(ak.pad_none(value, desired_length_2, 0), pad_value))
 
     return train_data,test_data
 
@@ -103,16 +103,16 @@ def Normalization(train_data,test_data):
     scaler = StandardScaler()
 
     # transform data
-    for key, value in train_data.items():
+    for key in train_data.fields:
         #value not being used from above, might just need train_data.keys and no value or .items
         if key == 'tid_array':  # Skip normalization for this key
             continue
         train_data[key] = scaler.fit_transform(train_data[key])
     
-    for key, value in test_data.items():
+    for key in test_data.fields:
         if key == 'tid_array':  # Skip normalization for this key
             continue
-        test_data[key] = scaler.fit_transform(test_data[key])
+        test_data[key] = scaler.transform(test_data[key])
 
 
     return train_data,test_data
@@ -147,6 +147,7 @@ def MakeDataset():
         "station_array": 0,
         "ladder_array": 0,
         "chip_array": 0,
+        "tid_array": 0
     }
     #Dictionary of padding values for each parameter
     #can change these padding values for physical/practical reasons as wish
@@ -163,9 +164,15 @@ def MakeDataset():
     # fromiter_convert(split_ratio, signal_arrays)
     train_data, test_data = fromiter_convert(split_ratio, signal_arrays)
 
+    """print(train_data)
+    print(test_data)"""
+
     print ("Padding...")
     # padding(padding_values,train_data,test_data)
     train_data, test_data = padding(padding_values, train_data, test_data)
+
+    """print(train_data)
+    print(test_data)"""
 
     print ("Normalizing...")
     # Normalization(train_data,test_data)
