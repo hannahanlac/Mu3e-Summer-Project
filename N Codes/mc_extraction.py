@@ -87,9 +87,8 @@ mu3eTree = signal_file['mu3e'].arrays([
 
 
 
-
 total_frames = len(mu3eTree)
-frame_numbers = list(range(0, total_frames)) 
+frame_numbers = list(range(0, 5000)) # Set to 5000 for now to avoid files being too big for git pushing
 print('Total number of frames in file:',total_frames)
 
 #Iterate over all frames, collect hit information
