@@ -62,6 +62,8 @@ def HitsInFrame(frame_number, mu3eTrame):
                 'pixel_x': hit.x(),
                 'pixel_y': hit.y(),
                 'timestamp' :time,
+                'mcIndex': mcIndex,
+                'mcNumber': mcNumber,
                 'tid': mc_hit_info["tid"],
                 'hid': mc_hit_info["hid"],
                 'hid_g': mc_hit_info["hid_g"],
@@ -72,15 +74,15 @@ def HitsInFrame(frame_number, mu3eTrame):
 #######################################################################################################
 
 # Create directory for file saving
-directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/DataFilesV5.3/signal1_98_32652" #NOTE: currently this needs to be changed each time
+directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/DataFilesV5.3/signal1_97_32652" #NOTE: currently this needs to be changed each time
 if not os.path.exists(directory):
     os.makedirs(directory)
-file_name = "hits_data_signal1_98_32652_with_mcinfo.csv"
+file_name = "hits_data_signal1_97_32652_with_mcinfo.csv"
 if os.path.exists(file_name): # Deletes old version of file if present
     os.remove(file_name)
 
 # Inputting a file and state which one testing
-root_file_path = "/root/Mu3eProject/RawData/v5.3/signal1_98_32652_execution_1_run_num_135993_sort.root"
+root_file_path = "/root/Mu3eProject/RawData/v5.3/signal1_97_32652_execution_1_run_num_716703_sort.root"
 print("Test with the file:", root_file_path) 
 print()
 
@@ -90,7 +92,7 @@ mu3eTree = signal_file['mu3e'].arrays(['hit_pixelid', 'hit_timestamp', 'hit_mc_i
 
 #Open the mchits tree, make a lookup dict preserving index no.
 mchits = signal_file["mu3e_mchits"].arrays(["tid", "hid", "hid_g"])
-print("Building mchits dictionary")
+print("Building mchits dictionary: Takes around 2 mins")
 mchits_data = mchits_data = {i: {"tid": tid, "hid": hid, "hid_g": hid_g} 
                for i, (tid, hid, hid_g) in enumerate(zip(mchits["tid"], mchits["hid"], mchits["hid_g"]))}
 
