@@ -28,7 +28,7 @@ def Dataset(signal_dir):
     })
     
     #sort hit arrays by frame 
-    sorting_index = ak.argsort(signal_arrays['frame_array'], ascending = False)
+    sorting_index = ak.argsort(signal_arrays['frame_array'], ascending = True)
     
     signal_arrays = signal_arrays[sorting_index]
     
@@ -104,16 +104,37 @@ def Normalization(train_data,test_data):
 
     # transform data
     for key in train_data.fields:
+
+        print([key], ":", train_data[key])
+
+        train_array = ak.to_numpy(train_data[key])
+        print(train_array)
         #value not being used from above, might just need train_data.keys and no value or .items
         if key == 'tid_array':  # Skip normalization for this key
             continue
-        train_data[key] = scaler.fit_transform(train_data[key])
+
+        # Reshape to 2D for scaler
+        train_array = train_array.reshape(-1, 1)
+        train_array = scaler.fit_transform(train_array)
+
+        train_data[key] = ak.Array(train_array.flatten())
+        print(train_data[key])
+
+
     
     for key in test_data.fields:
-        if key == 'tid_array':  # Skip normalization for this key
-            continue
-        test_data[key] = scaler.transform(test_data[key])
 
+        test_array = ak.to_numpy(test_data[key])
+        #test_array is the numpy array, converted from the specific awkward key
+        #loops through frame_array, pixelx_array etc.
+
+        if key == 'tid_array':  # Skip normalization for this key (after convert to numpy so no issues when converting back later)
+            continue
+
+        test_array = test_array.reshape(-1, 1)
+        test_array = scaler.transform(test_array)
+
+        test_data[key] = ak.Array(test_array.flatten())
 
     return train_data,test_data
 
@@ -171,8 +192,8 @@ def MakeDataset():
     # padding(padding_values,train_data,test_data)
     train_data, test_data = padding(padding_values, train_data, test_data)
 
-    """print(train_data)
-    print(test_data)"""
+    #print(train_data['frame_array'])
+    #print(test_data['tid_array'])
 
     print ("Normalizing...")
     # Normalization(train_data,test_data)
