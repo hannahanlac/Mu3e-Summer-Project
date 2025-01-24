@@ -1,6 +1,5 @@
 import numpy as np
 import awkward as ak
-import awkward0
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
@@ -108,7 +107,7 @@ def Normalization(train_data,test_data):
         train_array = train_array.reshape(-1, 1)
         train_array = scaler.fit_transform(train_array)
 
-        train_data[key] = ak.Array(train_array.flatten())
+        train_data[key] = ak.Array(train_array)
 
     
     for key in test_data.fields:
@@ -123,10 +122,15 @@ def Normalization(train_data,test_data):
         test_array = test_array.reshape(-1, 1)
         test_array = scaler.transform(test_array)
 
-        test_data[key] = ak.Array(test_array.flatten())
+        test_data[key] = ak.Array(test_array)
 
     return train_data,test_data
 
+
+
+#def check_data_stats(data, description=""):
+#    for key in data.fields:
+#        print(f"{description} {key}: mean={np.mean(data[key]):.3f}, std={np.std(data[key]):.3f}, min={np.min(data[key])}, max={np.max(data[key])}")
 
 
 
@@ -174,20 +178,18 @@ def MakeDataset():
     # fromiter_convert(split_ratio, signal_arrays)
     train_data, test_data = fromiter_convert(split_ratio, signal_arrays)
 
-    """print(train_data)
-    print(test_data)"""
-
     print ("Padding...")
     # padding(padding_values,train_data,test_data)
     train_data, test_data = padding(padding_values, train_data, test_data)
 
-    #print(train_data['frame_array'])
-    #print(test_data['tid_array'])
-
     print ("Normalizing...")
     # Normalization(train_data,test_data)
     train_data, test_data = Normalization(train_data, test_data)
-    
+
+    #print("Validating...")
+    #check_data_stats(train_data, "Train")
+    #check_data_stats(test_data, "Test")
+
     print ("Saving...")
     ak.to_parquet(train_data, train_file) 
     ak.to_parquet(test_data, test_file)
