@@ -75,9 +75,6 @@ def padding(padding_values,train_data,test_data):
     for key in train_data.fields:
         value = train_data[key]
 
-        if len(value) == 1:  # Check if the array is flat
-            continue  # Skip padding for flat arrays
-
         desired_length_1 = np.max(len(value))
         pad_value = padding_values[f"{key}"]
 
@@ -85,9 +82,6 @@ def padding(padding_values,train_data,test_data):
 
     for key in test_data.fields:
         value = test_data[key]
-
-        if len(value) == 1:  # Check if the array is flat
-            continue  # Skip padding for flat arrays
 
         desired_length_2 = np.max(len(value))
         pad_value = padding_values[f"{key}"]
@@ -105,10 +99,7 @@ def Normalization(train_data,test_data):
     # transform data
     for key in train_data.fields:
 
-        print([key], ":", train_data[key])
-
         train_array = ak.to_numpy(train_data[key])
-        print(train_array)
         #value not being used from above, might just need train_data.keys and no value or .items
         if key == 'tid_array':  # Skip normalization for this key
             continue
@@ -118,8 +109,6 @@ def Normalization(train_data,test_data):
         train_array = scaler.fit_transform(train_array)
 
         train_data[key] = ak.Array(train_array.flatten())
-        print(train_data[key])
-
 
     
     for key in test_data.fields:
