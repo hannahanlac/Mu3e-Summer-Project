@@ -1,9 +1,8 @@
-import awkward0
 from sklearn.utils import shuffle
 import tensorflow as tf
 from tensorflow import keras
 import numpy as np
-import awkward
+import awkward as ak
 import awkward0
 from matplotlib import pyplot as plt
 from sklearn.preprocessing import StandardScaler
@@ -196,7 +195,7 @@ logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(m
 
 def stack_arrays(a, keys, axis=-1):
     flat_arr = np.stack([a[k].flatten() for k in keys], axis=axis)
-    return awkward.JaggedArray.fromcounts(a[keys[0]].counts, flat_arr)
+    return ak.JaggedArray.fromcounts(a[keys[0]].counts, flat_arr)
 
 def pad_array(a, maxlen, value=0., dtype='float64'):
     x = (np.ones((len(a), maxlen)) * value).astype(dtype)
@@ -208,21 +207,21 @@ def pad_array(a, maxlen, value=0., dtype='float64'):
     return x
 
 
-# ### Adjust dataset
+# ### Adjust train_dataset
 
 # In[7]:
 
-
 class Dataset(object):
 
-    def __init__(self, filepath, feature_dict = {}, label='label', pad_len=100, data_format='channel_first'):
+    def __init__(self, filepath, feature_dict = {}, label='tid_array', pad_len=100, data_format='channel_first'):
         self.filepath = filepath
         self.feature_dict = feature_dict
         if len(feature_dict)==0:
-            feature_dict['points'] = ['eta_array', 'phi_array']
-            feature_dict['features'] = ['eta_array', 'phi_array', 'pT_array']
-            feature_dict['mask'] = ['pT_array']
-            #"eta_array": b,"phi_array": c,"pT_array"
+            feature_dict['points'] = ['pixelx_array', 'pixely_array']
+            feature_dict['features'] = ['pixelx_array', 'pixely_array', 'layer_array', 'station_array', 'ladder_array', 'chip_array']
+            feature_dict['mask'] = ['']
+            #"pixelx_array": b,"pixely_array": c,"layer_array"
+
         self.label = label
         self.pad_len = pad_len
         assert data_format in ('channel_first', 'channel_last')
@@ -234,21 +233,26 @@ class Dataset(object):
     def _load(self):
         logging.info('Start loading file %s' % self.filepath)
         counts = None
-        with awkward0.load(self.filepath) as a:
+
+        a = ak.from_parquet(self.filepath)
+        print(a)
             
-            self._label = a[self.label]
-            for k in self.feature_dict:
-                cols = self.feature_dict[k]
-                if not isinstance(cols, (list, tuple)):
-                    cols = [cols]
-                arrs = []
-                for col in cols:
-                    if counts is None:
-                        counts = awkward.count(a[col],axis=None)
-                    else:
-                        assert np.array_equal(counts, awkward.count(a[col],axis=None))
-                    arrs.append(pad_array(a[col], self.pad_len))
-                self._values[k] = np.stack(arrs, axis=self.stack_axis)
+        self._label = a[self.label]
+            
+        for k in self.feature_dict:
+            cols = self.feature_dict[k]
+            if not isinstance(cols, (list, tuple)):
+                cols = [cols]
+            arrs = []
+
+            for col in cols:
+                if counts is None:
+                    counts = ak.count(a[col],axis=None)
+                else:
+                    assert np.array_equal(counts, ak.count(a[col],axis=None))
+                arrs.append(pad_array(a[col], self.pad_len))
+            self._values[k] = np.stack(arrs, axis=self.stack_axis)
+
         logging.info('Finished loading file %s' % self.filepath)
 
 
@@ -280,12 +284,12 @@ class Dataset(object):
 
 
 # ### Load Dataset
-# Change path to your train dataset ( train + validation )
+# Change path to your train train_dataset ( train + validation )
 
 # In[ ]:
 
 
-dataset = Dataset('inputs/thanks_train.awkd', data_format='channel_last')
+train_dataset = Dataset('ProcessedData/signal1_96_32652/train_data/train_data.parquet', data_format='channel_last')
 
 
 # In[ ]:
@@ -293,7 +297,7 @@ dataset = Dataset('inputs/thanks_train.awkd', data_format='channel_last')
 
 model_name = 'model_test'        #set your model (file) name
 num_classes = 2                    #our task is binary classification so we only have two classes
-input_shapes = {k:np.shape(dataset[k])[1:] for k in dataset.X}
+input_shapes = {k:np.shape(train_dataset[k])[1:] for k in train_dataset.X}
 model = get_particle_net_lite(num_classes, input_shapes)
 
 
@@ -310,7 +314,7 @@ model = get_particle_net_lite(num_classes, input_shapes)
 num_epochs = 10
 batch_size = 64
 validation_split=0.25
-num_train_steps = (len(dataset['points'])*(1-validation_split) // batch_size) * num_epochs
+num_train_steps = (len(train_dataset['points'])*(1-validation_split) // batch_size) * num_epochs
 
 #Polynomial lr Decay
 def lr_schedule(initial_learning_rate,end_learning_rate):
@@ -340,7 +344,7 @@ model.summary()
 # In[12]:
 
 
-checkpoint = keras.callbacks.ModelCheckpoint(filepath=f'model_record/{model_name}',           #filepath
+checkpoint = keras.callbacks.ModelCheckpoint(filepath=f'ProcessedData/model_record/{model_name}',           #filepath
                              monitor='val_accuracy',
                              verbose=10,
                              save_best_only=True)         
@@ -348,12 +352,12 @@ progress_bar = keras.callbacks.ProgbarLogger()
 callbacks = [checkpoint, progress_bar]
 
 
-# ### Shuffle training dataset
+# ### Shuffle training train_dataset
 
 # In[13]:
 
 
-dataset.shuffle()
+train_dataset.shuffle()
 
 
 # ### Train the model
@@ -362,7 +366,7 @@ dataset.shuffle()
 # In[ ]:
 
 
-history = model.fit(dataset.X, dataset.y,
+history = model.fit(train_dataset.X, train_dataset.y,
           batch_size=batch_size,
           epochs=10,                                                    # --- set number of training epochs ---      
           validation_split=0.25,                                        # --- set ratio to split Dataset for training set and testing set ---
@@ -373,7 +377,7 @@ model.save(f"model_record/{model_name}")
 
 
 # ### Prediction
-# Set <b>testing dataset file path</b> here. Also we will save prediction scores which use to make plot.
+# Set <b>testing train_dataset file path</b> here. Also we will save prediction scores which use to make plot.
 
 # In[ ]:
 
@@ -390,9 +394,9 @@ print(f"metrics saved: {model_name}")
 # In[ ]:
 
 
-# Predict on test dataset
-# Change path to testing dataset here
-test_dataset = Dataset('inputs/thanks_test.awkd', data_format='channel_last')
+# Predict on test train_dataset
+# Change path to testing train_dataset here
+test_dataset = Dataset('ProcessedData/signal1_96_32652/test_data/test_data.parquet', data_format='channel_last')
 
 
 # In[24]:
