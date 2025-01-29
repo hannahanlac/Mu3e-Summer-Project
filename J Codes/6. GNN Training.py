@@ -6,6 +6,7 @@ import awkward as ak
 import awkward0
 from matplotlib import pyplot as plt
 from sklearn.preprocessing import StandardScaler
+import keras
 
 
 # ### k-nearest neighbors
@@ -13,7 +14,8 @@ from sklearn.preprocessing import StandardScaler
 
 # In[2]:
 
-
+#Calculates euclidean distances in graph space between nodes, knn will use this output to determine
+#what counts as being nn. Should be able to stay as is, general enough.
 def batch_distance_matrix_general(A, B):
     with tf.name_scope('dmat'):
         r_A = tf.reduce_sum(A * A, axis=2, keepdims=True)
@@ -22,7 +24,7 @@ def batch_distance_matrix_general(A, B):
         D = r_A - 2 * m + tf.transpose(r_B, perm=(0, 2, 1))
         return D
 
-
+#collects the knn based on results from above? Or based on something else? I don't see D in here anywhere
 def knn(num_points, k, topk_indices, features):
     # topk_indices: (N, P, K)
     # features: (N, P, C)
@@ -39,59 +41,81 @@ def knn(num_points, k, topk_indices, features):
 
 # In[3]:
 
-
+#main message passing operation of GNN can make major theory tweaks here
 def edge_conv(points, features, num_points, K, channels, with_bn=True, activation='relu', pooling='average', name='edgeconv'):
-    """EdgeConv
+    """Modified EdgeConv for Edge Classification
+    
     Args:
-        K: int, number of neighbors
-        in_channels: # of input channels
-        channels: tuple of output channels
+        points: (N, P, C_p) - Hit positions (N events, P hits, C_p position features)
+        features: (N, P, C_f) - Hit features (N events, P hits, C_f feature channels)
+        num_points: Number of hits per event
+        K: Number of nearest neighbors (int)
+        channels: Tuple of MLP output sizes
+        with_bn: Whether to apply batch normalization
+        activation: Activation function (default: 'relu')
+        name: Name scope for layers
         pooling: pooling method ('max' or 'average')
-    Inputs:
-        points: (N, P, C_p)
-        features: (N, P, C_0)
+    
     Returns:
-        transformed points: (N, P, C_out), C_out = channels[-1]
+        edge_logits: (N, P, K, 1) - Binary classification for each edge
     """
+    
 
-    with tf.name_scope('edgeconv'):
+    with tf.name_scope(name='edgeconv'):
 
-        # distance
-        D = batch_distance_matrix_general(points, points)  # (N, P, P)
-        _, indices = tf.nn.top_k(-D, k=K + 1)  # (N, P, K+1)
-        indices = indices[:, :, 1:]  # (N, P, K)
+        # Compute kNN graph
+        D = batch_distance_matrix_general(points, points)  # (N, P, P), Pairwise distances between nodes in graph space?
+        _, indices = tf.nn.top_k(-D, k=K + 1)  # (N, P, K+1), collects K+1 nearest neighbors of each node (including self)
+        indices = indices[:, :, 1:]  # (N, P, K) removes the self-connection so that only the actual K-nearest neighbors remain
 
-        fts = features
-        knn_fts = knn(num_points, K, indices, fts)  # (N, P, K, C)
-        knn_fts_center = tf.tile(tf.expand_dims(fts, axis=2), (1, 1, K, 1))  # (N, P, K, C)
-        knn_fts = tf.concat([knn_fts_center, tf.subtract(knn_fts, knn_fts_center)], axis=-1)  # (N, P, K, 2*C)
+        # Get neighbor features
+        knn_features = knn(num_points, K, indices, features)  # (N, P, K, C_f) 
+        #extracts features of the K nearest neighbors for each hit and stores by calling knn function
+        knn_features_center = tf.tile(tf.expand_dims(features, axis=2), (1, 1, K, 1))  # (N, P, K, C_f)
+        #duplicates the central hit’s features (i.e., hit focusing on currently) so can compare with neighbors
+        edge_features = tf.concat([knn_features_center, knn_features, tf.subtract(knn_features_center)], axis=-1)  # (N, P, K, 2*C_f)
+        #N - no. graphs (group of hits batched by some metric), P - no. hits per graph, K = no. nearest neighbours per hit, 2*C_f = feature dimension (includes original features and feature differences) i.e. no. features describing each hit
+        # creates edge features by i) storing central hit fts, storing relative differences between central and neighboring hits
 
-        x = knn_fts
+        # Edge MLP - Defines multi-layer perceptron to process edge features
+        x = edge_features
+        #sets x = edge_features computed in prev function
+
         for idx, channel in enumerate(channels):
-            x = keras.layers.Conv2D(channel, kernel_size=(1, 1), strides=1, data_format='channels_last',
-                                    use_bias=False if with_bn else True, kernel_initializer='HeNormal', name='%s_conv%d' % (name, idx))(x)
+            #Loops over channels list, specifies number of filters for each MLP layer
+            #idx keeps track of the layer index
+            x = keras.layers.Conv2D(channel, kernel_size=(1, 1), strides=1, 
+                                    data_format='channels_last', 
+                                    use_bias=not with_bn,  # Ensuring BN compatibility, No bias if BN is applied
+                                    kernel_initializer='HeNormal', 
+                                    name=f"{name}_conv{idx}")(x)
+            #Uses 1x1 convolutions to apply transformations independently to each edge
+            #channel defines the number of filters (output feature dimensions)
+            #(1,1) kernel ensures per-edge transformation without affecting spatial structure.
+            #activation=activation applies a non-linearity (default = ReLU)
+            #name=f'{name}_conv{idx}' assigns a unique name to each layer (easier to debug)
+
             if with_bn:
-                x = keras.layers.BatchNormalization(name='%s_bn%d' % (name, idx))(x)
+                x = keras.layers.BatchNormalization(name=f"{name}_bn{idx}")(x)
+            #Batch normalization (with_bn) stabilizes training by reducing internal covariate shift - if enabled, runs here
+            #Normalizes the output of the convolutional layer.
+
             if activation:
-                x = keras.layers.Activation(activation, name='%s_act%d' % (name, idx))(x)
+                x = keras.layers.Activation(activation, name=f"{name}_act{idx}")(x)
 
-        if pooling == 'max':
-            fts = tf.reduce_max(x, axis=2)  # (N, P, C')
-        else:
-            fts = tf.reduce_mean(x, axis=2)  # (N, P, C')
 
-        # shortcut
+        """# shortcut
         sc = keras.layers.Conv2D(channels[-1], kernel_size=(1, 1), strides=1, data_format='channels_last',
                                  use_bias=False if with_bn else True, kernel_initializer='HeNormal', name='%s_sc_conv' % name)(tf.expand_dims(features, axis=2))
         if with_bn:
             sc = keras.layers.BatchNormalization(name='%s_sc_bn' % name)(sc)
-        sc = tf.squeeze(sc, axis=2)
+        sc = tf.squeeze(sc, axis=2)"""
 
-        if activation:
-            return keras.layers.Activation(activation, name='%s_sc_act' % name)(sc + fts)  # (N, P, C')
-        else:
-            return sc + fts
+        # Final classification layer (1 output per edge)
+        edge_logits = keras.layers.Conv2D(1, (1, 1), activation='sigmoid', name=f'{name}_output')(x)
 
+        return edge_logits  # (N, P, K, 1)
+        
 
 # ### ParticleNetLite++
 # Base architecture
@@ -112,17 +136,17 @@ def _particle_net_base(points, features=None, mask=None, setting=None, name='par
             mask = tf.cast(tf.not_equal(mask, 0), dtype='float32')  # 1 if valid
             coord_shift = tf.multiply(999., tf.cast(tf.equal(mask, 0), dtype='float32'))  # make non-valid positions to 99
 
-        fts = tf.squeeze(keras.layers.BatchNormalization(name='%s_fts_bn' % name)(tf.expand_dims(features, axis=2)), axis=2)
+        features = tf.squeeze(keras.layers.BatchNormalization(name='%s_features_bn' % name)(tf.expand_dims(features, axis=2)), axis=2)
         for layer_idx, layer_param in enumerate(setting.conv_params):
             K, channels = layer_param
-            pts = tf.add(coord_shift, points) if layer_idx == 0 else tf.add(coord_shift, fts)
-            fts = edge_conv(pts, fts, setting.num_points, K, channels, with_bn=True, activation='relu',
+            pts = tf.add(coord_shift, points) if layer_idx == 0 else tf.add(coord_shift, features)
+            features = edge_conv(pts, features, setting.num_points, K, channels, with_bn=True, activation='relu',
                             pooling=setting.conv_pooling, name='%s_%s%d' % (name, 'EdgeConv', layer_idx))
 
         if mask is not None:
-            fts = tf.multiply(fts, mask)
+            features = tf.multiply(features, mask)
 
-        pool = tf.reduce_mean(fts, axis=1)  # (N, C)
+        pool = tf.reduce_mean(features, axis=1)  # (N, C)
 
         if setting.fc_params is not None:
             x = pool
@@ -217,7 +241,7 @@ class Dataset(object):
         self.filepath = filepath
         self.feature_dict = feature_dict
         if len(feature_dict)==0:
-            feature_dict['points'] = ['pixelx_array', 'pixely_array']
+            feature_dict['points'] = ['pixelx_array', 'pixely_array', 'layer_array', 'station_array', 'ladder_array', 'chip_array']
             feature_dict['features'] = ['pixelx_array', 'pixely_array', 'layer_array', 'station_array', 'ladder_array', 'chip_array']
             feature_dict['mask'] = ['']
             #"pixelx_array": b,"pixely_array": c,"layer_array"
@@ -284,7 +308,7 @@ class Dataset(object):
 
 
 # ### Load Dataset
-# Change path to your train train_dataset ( train + validation )
+# Change path to your train_dataset ( train + validation )
 
 # In[ ]:
 
@@ -394,8 +418,8 @@ print(f"metrics saved: {model_name}")
 # In[ ]:
 
 
-# Predict on test train_dataset
-# Change path to testing train_dataset here
+# Predict on test dataset
+# Change path to testing dataset here
 test_dataset = Dataset('ProcessedData/signal1_96_32652/test_data/test_data.parquet', data_format='channel_last')
 
 
