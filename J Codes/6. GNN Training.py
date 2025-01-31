@@ -1,6 +1,5 @@
 from sklearn.utils import shuffle
 import tensorflow as tf
-from tensorflow import keras
 import numpy as np
 import awkward as ak
 import awkward0
@@ -42,7 +41,7 @@ def knn(num_points, k, topk_indices, features):
 # In[3]:
 
 #main message passing operation of GNN can make major theory tweaks here
-def edge_conv(points, features, num_points, K, channels, with_bn=True, activation='relu', pooling='average', name='edgeconv'):
+def edge_conv(points, features, num_points, K, channels, with_bn=True, activation='relu', name='edgeconv'):
     """Modified EdgeConv for Edge Classification
     
     Args:
@@ -112,100 +111,31 @@ def edge_conv(points, features, num_points, K, channels, with_bn=True, activatio
         sc = tf.squeeze(sc, axis=2)"""
 
         # Final classification layer (1 output per edge)
-        edge_logits = keras.layers.Conv2D(1, (1, 1), activation='sigmoid', name=f'{name}_output')(x)
+        edge_embds = keras.layers.Conv2D(1, (1, 1), activation='sigmoid', name=f'{name}_output')(x)
 
-        return edge_logits  # (N, P, K, 1)
+        return edge_embds  # (N, P, K, 1)
         
-
-# ### ParticleNetLite++
-# Base architecture
 
 # In[4]:
 
 
-def _particle_net_base(points, features=None, mask=None, setting=None, name='particle_net'):
-    # points : (N, P, C_coord)
-    # features:  (N, P, C_features), optional
-    # mask: (N, P, 1), optinal
-
-    with tf.name_scope(name):
-        if features is None:
-            features = points
-
-        if mask is not None:
-            mask = tf.cast(tf.not_equal(mask, 0), dtype='float32')  # 1 if valid
-            coord_shift = tf.multiply(999., tf.cast(tf.equal(mask, 0), dtype='float32'))  # make non-valid positions to 99
-
-        features = tf.squeeze(keras.layers.BatchNormalization(name='%s_features_bn' % name)(tf.expand_dims(features, axis=2)), axis=2)
-        for layer_idx, layer_param in enumerate(setting.conv_params):
-            K, channels = layer_param
-            pts = tf.add(coord_shift, points) if layer_idx == 0 else tf.add(coord_shift, features)
-            features = edge_conv(pts, features, setting.num_points, K, channels, with_bn=True, activation='relu',
-                            pooling=setting.conv_pooling, name='%s_%s%d' % (name, 'EdgeConv', layer_idx))
-
-        if mask is not None:
-            features = tf.multiply(features, mask)
-
-        pool = tf.reduce_mean(features, axis=1)  # (N, C)
-
-        if setting.fc_params is not None:
-            x = pool
-            for layer_idx, layer_param in enumerate(setting.fc_params):
-                units, drop_rate = layer_param
-                x = keras.layers.Dense(units, activation='relu')(x)
-                if drop_rate is not None and drop_rate > 0:
-                    x = keras.layers.Dropout(drop_rate)(x)
-            out = keras.layers.Dense(1, activation='sigmoid')(x)
-            return out  # (N, num_classes)
-        else:
-            return pool
-
-class _DotDict:
-    pass
-
-
-# ### ParticleNetLite++
-# Change parameters here:
-# 
-# 1. number of neighbors of knn
-# 
-# 2. params of MLP in EdgeConv
-# 
-# 3. Global pooling operation
-# 
-# 4. number of neurons in dense layer
-# 
-# 5. dropout rate
-
-# In[5]:
-
-
-def get_particle_net_lite(num_classes, input_shapes):
-    r"""
-    num_classes : int
-        Number of output classes.
+def get_edgeconv(num_classes, input_shapes):
+    """
     input_shapes : dict
         The shapes of each input (`points`, `features`, `mask`).
     """
-    setting = _DotDict()
-    setting.num_class = num_classes
-    # conv_params: list of tuple in the format (K, (C1, C2, C3))
-    setting.conv_params = [
-        (7, (4, 4, 4)),
-        (7, (8, 8, 8)),
-        ]
-    # conv_pooling: 'average' or 'max'
-    setting.conv_pooling = 'average'
-    # fc_params: list of tuples in the format (C, drop_rate)
-    setting.fc_params = [(16, None)]
-    setting.num_points = input_shapes['points'][0]
 
     points = keras.Input(name='points', shape=input_shapes['points'])
     features = keras.Input(name='features', shape=input_shapes['features']) if 'features' in input_shapes else None
     mask = keras.Input(name='mask', shape=input_shapes['mask']) if 'mask' in input_shapes else None
-    outputs = _particle_net_base(points, features, mask, setting, name='ParticleNet')
 
-    return keras.Model(inputs=[points, features, mask], outputs=outputs, name='ParticleNet')
+
+    edge_logits = edge_conv(points, features, mask, name='edgeconv')
+
+    # New Model: Outputs edge classification logits directly
+    GCNN_model = keras.Model(inputs=[points, features, mask], outputs=edge_logits, name='EdgeClassifierGCNN')
+
+    return GCNN_model
 
 
 # #### Stack and pad arrays
@@ -319,10 +249,10 @@ train_dataset = Dataset('ProcessedData/signal1_96_32652/train_data/train_data.pa
 # In[ ]:
 
 
-model_name = 'model_test'        #set your model (file) name
+GCNN_model_name = 'GCNN_model_test'        #set your GCNN_model (file) name
 num_classes = 2                    #our task is binary classification so we only have two classes
 input_shapes = {k:np.shape(train_dataset[k])[1:] for k in train_dataset.X}
-model = get_particle_net_lite(num_classes, input_shapes)
+GCNN_model = get_edgeconv(num_classes, input_shapes)
 
 
 # ### Learning Rate Strategy
@@ -359,16 +289,16 @@ def lr_schedule(initial_learning_rate,end_learning_rate):
 # In[ ]:
 
 
-model.compile(loss='binary_crossentropy',
+GCNN_model.compile(loss='binary_crossentropy',
               optimizer=keras.optimizers.Adam(learning_rate=lr_schedule(0.01,0.001)),    #you can change optimizer and lr here
               metrics=['accuracy'])
-model.summary()
+GCNN_model.summary()
 
 
 # In[12]:
 
 
-checkpoint = keras.callbacks.ModelCheckpoint(filepath=f'ProcessedData/model_record/{model_name}',           #filepath
+checkpoint = keras.callbacks.ModelCheckpoint(filepath=f'ProcessedData/model_record/{GCNN_model_name}',           #filepath
                              monitor='val_accuracy',
                              verbose=10,
                              save_best_only=True)         
@@ -384,20 +314,20 @@ callbacks = [checkpoint, progress_bar]
 train_dataset.shuffle()
 
 
-# ### Train the model
+# ### Train the GCNN_model
 # Set <b>number of training epochs</b> and set <b>ratio</b> to split Dataset for training set and testing set. Start training.
 
 # In[ ]:
 
 
-history = model.fit(train_dataset.X, train_dataset.y,
+history = GCNN_model.fit(train_dataset.X, train_dataset.y,
           batch_size=batch_size,
           epochs=10,                                                    # --- set number of training epochs ---      
           validation_split=0.25,                                        # --- set ratio to split Dataset for training set and testing set ---
           shuffle=True,
           callbacks=callbacks)
 
-model.save(f"model_record/{model_name}")
+GCNN_model.save(f"GCNN_model_record/{GCNN_model_name}")
 
 
 # ### Prediction
@@ -410,9 +340,9 @@ import pickle
 
 # Save training metrics
 metrics = dict(history.history)
-with open(f"model_record/{model_name}/model_metrics.pickle", 'wb') as handle:
+with open(f"GCNN_model_record/{GCNN_model_name}/GCNN_model_metrics.pickle", 'wb') as handle:
         pickle.dump(metrics , handle, protocol=4)
-print(f"metrics saved: {model_name}")
+print(f"metrics saved: {GCNN_model_name}")
 
 
 # In[ ]:
@@ -427,15 +357,12 @@ test_dataset = Dataset('ProcessedData/signal1_96_32652/test_data/test_data.parqu
 
 
 # Save to numpy files to use in make_plots2.py
-scores = np.array(model.predict(test_dataset.X)).astype(np.float64)
-np.save(f'model_record/{model_name}/prediction_scores.npy', scores)
+scores = np.array(GCNN_model.predict(test_dataset.X)).astype(np.float64)
+np.save(f'GCNN_model_record/{GCNN_model_name}/prediction_scores.npy', scores)
 np.save('inputs/test_labels.npy', test_dataset.y)
 
 
 # ### Simply visualize result
-
-# In[ ]:
-
 
 plt.hist(scores)
 # %%
