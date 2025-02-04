@@ -111,15 +111,15 @@ def edge_conv(points, features, num_points, K, channels, with_bn=True, activatio
         sc = tf.squeeze(sc, axis=2)"""
 
         # Final classification layer (1 output per edge)
-        edge_embds = keras.layers.Conv2D(1, (1, 1), activation='sigmoid', name=f'{name}_output')(x)
+        edge_logits = keras.layers.Conv2D(1, (1, 1), activation='sigmoid', name=f'{name}_output')(x)
 
-        return edge_embds  # (N, P, K, 1)
+        return edge_logits  # (N, P, K, 1)
         
 
 # In[4]:
 
 
-def get_edgeconv(num_classes, input_shapes):
+def get_edgeconv(input_shapes):
     """
     input_shapes : dict
         The shapes of each input (`points`, `features`, `mask`).
@@ -147,19 +147,6 @@ import logging
 
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
 
-def stack_arrays(a, keys, axis=-1):
-    flat_arr = np.stack([a[k].flatten() for k in keys], axis=axis)
-    return ak.JaggedArray.fromcounts(a[keys[0]].counts, flat_arr)
-
-def pad_array(a, maxlen, value=0., dtype='float64'):
-    x = (np.ones((len(a), maxlen)) * value).astype(dtype)
-    for idx, s in enumerate(a):
-        if not len(s):
-            continue
-        trunc = np.array(s[:maxlen]).astype(dtype)
-        x[idx, :len(trunc)] = trunc
-    return x
-
 
 # ### Adjust train_dataset
 
@@ -173,7 +160,7 @@ class Dataset(object):
         if len(feature_dict)==0:
             feature_dict['points'] = ['pixelx_array', 'pixely_array', 'layer_array', 'station_array', 'ladder_array', 'chip_array']
             feature_dict['features'] = ['pixelx_array', 'pixely_array', 'layer_array', 'station_array', 'ladder_array', 'chip_array']
-            feature_dict['mask'] = ['']
+            feature_dict['mask'] = ['layer_array']
             #"pixelx_array": b,"pixely_array": c,"layer_array"
 
         self.label = label
@@ -189,7 +176,6 @@ class Dataset(object):
         counts = None
 
         a = ak.from_parquet(self.filepath)
-        print(a)
             
         self._label = a[self.label]
             
@@ -204,8 +190,7 @@ class Dataset(object):
                     counts = ak.count(a[col],axis=None)
                 else:
                     assert np.array_equal(counts, ak.count(a[col],axis=None))
-                arrs.append(pad_array(a[col], self.pad_len))
-            self._values[k] = np.stack(arrs, axis=self.stack_axis)
+                
 
         logging.info('Finished loading file %s' % self.filepath)
 
@@ -230,7 +215,7 @@ class Dataset(object):
     def shuffle(self, seed=None):
         if seed is not None:
             np.random.seed(seed)
-        shuffle_indices = np.arange(self.__len__())
+        shuffle_indices = np.arange(len(self))
         np.random.shuffle(shuffle_indices)
         for k in self._values:
             self._values[k] = self._values[k][shuffle_indices]
@@ -252,7 +237,7 @@ train_dataset = Dataset('ProcessedData/signal1_96_32652/train_data/train_data.pa
 GCNN_model_name = 'GCNN_model_test'        #set your GCNN_model (file) name
 num_classes = 2                    #our task is binary classification so we only have two classes
 input_shapes = {k:np.shape(train_dataset[k])[1:] for k in train_dataset.X}
-GCNN_model = get_edgeconv(num_classes, input_shapes)
+GCNN_model = get_edgeconv(input_shapes)
 
 
 # ### Learning Rate Strategy
@@ -272,7 +257,7 @@ num_train_steps = (len(train_dataset['points'])*(1-validation_split) // batch_si
 
 #Polynomial lr Decay
 def lr_schedule(initial_learning_rate,end_learning_rate):
-    lr = tf.keras.optimizers.schedules.PolynomialDecay(
+    lr = keras.optimizers.schedules.PolynomialDecay(
        initial_learning_rate = initial_learning_rate,
        end_learning_rate = end_learning_rate,
        decay_steps = num_train_steps)
