@@ -173,26 +173,59 @@ class Dataset(object):
 
     def _load(self):
         logging.info('Start loading file %s' % self.filepath)
+        #logs a message indicating that the loading process has started - useful for debugging later
         counts = None
+        #This variable will store the number of elements in the first feature column that is processed
+        #used to ensure that all feature columns have the same number of elements
 
         a = ak.from_parquet(self.filepath)
+        #Loads a dataset from a Parquet file into an Awkward Array (a)
+        print(ak.to_list(a[:5]))  # Prints first 5 entries in list 
+
             
-        self._label = a[self.label]
+        self._label = ak.to_numpy(a[self.label])  # Convert labels to NumPy
+        #Extracts the label column from the dataset (a)
+        #extracted data is stored in self._label for later use
+        #could be issue here, how determining where / what label is?
+
+        self._values = {}  # Initialize dictionary to store feature arrays
             
-        for k in self.feature_dict:
-            cols = self.feature_dict[k]
+        for k, cols in self.feature_dict.items():
+            #cols = self.feature_dict[k]
+            #Iterates over the feature_dict, which is a dictionary mapping feature names (keys) to columns (values)
+            #Specifies this in _init above
+            #k represents the feature name, and cols represents the column(s) containing that feature.
             if not isinstance(cols, (list, tuple)):
                 cols = [cols]
+            #Ensures that cols is always a list (even if it's just a single column), standardizes the way features are processed
             arrs = []
+            #Creates an empty list arrs to store extracted feature arrays
 
             for col in cols:
+            #Iterates over each column name in cols for the current feature
+
+                feature_array = ak.to_numpy(a[col])
+
                 if counts is None:
                     counts = ak.count(a[col],axis=None)
+            #first time this loop runs (counts is None), it sets counts to the number of elements in the first feature column.
                 else:
-                    assert np.array_equal(counts, ak.count(a[col],axis=None))
+                    assert np.array_equal(counts, ak.count(a[col],axis=None)), \
+                    f"Inconsistent feature lengths in column {col}"
+            #For every subsequent column, it checks that the number of elements matches using assert np.array_equal(...).
+            #ensures that all features have the same number of elements, preventing shape mismatches later.
+                
+                arrs.append(feature_array)  # Store features as Awkward Arrays
+                
+
+            # Stack the features using Numpy
+            self._values[k] = np.stack(arrs, axis=-1)  # Stack features along last axis
+
+            
                 
 
         logging.info('Finished loading file %s' % self.filepath)
+        #Logs a message indicating that the file has been fully processed
 
 
     def __len__(self):
