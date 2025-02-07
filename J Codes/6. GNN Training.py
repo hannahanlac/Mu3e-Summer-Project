@@ -45,9 +45,9 @@ def edge_conv(points, features, num_points, K, channels, with_bn=True, activatio
     """Modified EdgeConv for Edge Classification
     
     Args:
-        points: (N, P, C_p) - Hit positions (N events, P hits, C_p position features)
-        features: (N, P, C_f) - Hit features (N events, P hits, C_f feature channels)
-        num_points: Number of hits per event
+        points: (N, P, C_p) - Hit positions (N events/sampels, P hits, C_p position features)
+        features: (N, P, C_f) - Hit features (N events/samples, P hits, C_f feature channels)
+        num_points: Number of hits per event/sample
         K: Number of nearest neighbors (int)
         channels: Tuple of MLP output sizes
         with_bn: Whether to apply batch normalization
@@ -63,7 +63,8 @@ def edge_conv(points, features, num_points, K, channels, with_bn=True, activatio
     with tf.name_scope(name='edgeconv'):
 
         # Compute kNN graph
-        D = batch_distance_matrix_general(points, points)  # (N, P, P), Pairwise distances between nodes in graph space?
+        D = keras.layers.Lambda(lambda x: batch_distance_matrix_general(x, x),
+                        output_shape=(None, num_points, num_points))(points)  # (N, P, P), Pairwise distances between nodes in graph space?
         _, indices = tf.nn.top_k(-D, k=K + 1)  # (N, P, K+1), collects K+1 nearest neighbors of each node (including self)
         indices = indices[:, :, 1:]  # (N, P, K) removes the self-connection so that only the actual K-nearest neighbors remain
 
@@ -129,8 +130,12 @@ def get_edgeconv(input_shapes):
     features = keras.Input(name='features', shape=input_shapes['features']) if 'features' in input_shapes else None
     mask = keras.Input(name='mask', shape=input_shapes['mask']) if 'mask' in input_shapes else None
 
+    num_points = points.shape[1]  # Get dynamically from input
+    K = 10  # Set a default value
+    channels = [64, 128, 256]  # Define layer sizes
 
-    edge_logits = edge_conv(points, features, mask, name='edgeconv')
+    edge_logits = edge_conv(points, features, num_points, K, channels, name='edgeconv')
+
 
     # New Model: Outputs edge classification logits directly
     GCNN_model = keras.Model(inputs=[points, features, mask], outputs=edge_logits, name='EdgeClassifierGCNN')
@@ -154,19 +159,30 @@ logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(m
 
 class Dataset(object):
 
-    def __init__(self, filepath, feature_dict = {}, label='tid_array', pad_len=100, data_format='channel_first'):
+    def __init__(self, filepath, feature_dict = None, label='tid_array', data_format='channel_first'):
+        #self - convention in classes to refer to any proccessing corresponding to the current instance being worked with
+        #filepath: Path to the Parquet dataset. feature_dict: Dictionary mapping feature groups to feature names. Defaults/Starts to/with None
+        #label: The target variable (default: 'tid_array'). data_format: Determines how feature arrays are structured ('channel_first' or 'channel_last').
         self.filepath = filepath
-        self.feature_dict = feature_dict
-        if len(feature_dict)==0:
-            feature_dict['points'] = ['pixelx_array', 'pixely_array', 'layer_array', 'station_array', 'ladder_array', 'chip_array']
-            feature_dict['features'] = ['pixelx_array', 'pixely_array', 'layer_array', 'station_array', 'ladder_array', 'chip_array']
-            feature_dict['mask'] = ['layer_array']
+
+        self.feature_dict = feature_dict if feature_dict is not None else {}
+        #If feature_dict is not None, use its given value. Else, use a new empty dictionary {}.
+        if not self.feature_dict:
+            #If feature_dict is empty (which it should be), we initialize default feature groups.
+            #This syntax checks whether empty directly instead of counting as ==0 method did before
+            self.feature_dict['points'] = ['pixelx_array', 'pixely_array', 'layer_array', 'station_array', 'ladder_array', 'chip_array']
+            self.feature_dict['features'] = ['pixelx_array', 'pixely_array', 'layer_array', 'station_array', 'ladder_array', 'chip_array']
+            self.feature_dict['mask'] = ['layer_array']
             #"pixelx_array": b,"pixely_array": c,"layer_array"
 
         self.label = label
-        self.pad_len = pad_len
-        assert data_format in ('channel_first', 'channel_last')
-        self.stack_axis = 1 if data_format=='channel_first' else -1
+        assert data_format in ('channel_first', 'channel_last'), "Invalid data format"
+        #Ensures data_format is either 'channel_first' or 'channel_last'. If not, we've added error message to tell us this
+
+        self.stack_axis = 1 if data_format == 'channel_first' else -1
+        #Sets the axis for stacking features: 1 → Features will be stacked along channels (channel_first).
+        #-1 → Features will be stacked along last dimension (channel_last).
+        
         self._values = {}
         self._label = None
         self._load()
@@ -174,68 +190,88 @@ class Dataset(object):
     def _load(self):
         logging.info('Start loading file %s' % self.filepath)
         #logs a message indicating that the loading process has started - useful for debugging later
-        counts = None
-        #This variable will store the number of elements in the first feature column that is processed
-        #used to ensure that all feature columns have the same number of elements
 
         a = ak.from_parquet(self.filepath)
         #Loads a dataset from a Parquet file into an Awkward Array (a)
-        print(ak.to_list(a[:5]))  # Prints first 5 entries in list 
+        #print(ak.to_list(a[:5]))  # Prints first 5 entries in list 
 
+        # Check if label exists in the dataset
+        if self.label not in a.fields:
+            raise KeyError(f"Label '{self.label}' not found in dataset.")
+        #Prevents errors later by ensuring the label column exists in the dataset now, at this stage
+        #Preemptive error handling suggested by GPT
             
-        self._label = ak.to_numpy(a[self.label])  # Convert labels to NumPy
+        # Store label separately
+        self._label = ak.to_numpy(a[self.label])  # Convert label to NumPy array
+        #Converts Awkward Array to NumPy array for easier processing.
+        #Extracts the target label column for training (tid_array)
         #Extracts the label column from the dataset (a)
         #extracted data is stored in self._label for later use
         #could be issue here, how determining where / what label is?
 
-        self._values = {}  # Initialize dictionary to store feature arrays
-            
-        for k, cols in self.feature_dict.items():
-            #cols = self.feature_dict[k]
-            #Iterates over the feature_dict, which is a dictionary mapping feature names (keys) to columns (values)
-            #Specifies this in _init above
-            #k represents the feature name, and cols represents the column(s) containing that feature.
-            if not isinstance(cols, (list, tuple)):
-                cols = [cols]
-            #Ensures that cols is always a list (even if it's just a single column), standardizes the way features are processed
-            arrs = []
-            #Creates an empty list arrs to store extracted feature arrays
+        self._values = {}
+        # Initialize dictionary to store feature arrays
+        
+        counts = None
+        #This variable will store the number of elements in the first feature column that is processed
+        #used to ensure that all feature columns have the same number of elements
+  
 
-            for col in cols:
-            #Iterates over each column name in cols for the current feature
+        for feature_group, columns in self.feature_dict.items():
+            #Iterates over feature groups and their associated columns.
+            feature_arrays = []
+            
+            for col in columns:
+                if col not in a.fields:
+                    logging.warning(f"Column '{col}' not found in dataset. Skipping.")
+                    continue  # Skip missing columns  
+            #some columns might not exist in all datasets.
+            #Instead of crashing, it logs a warning and skips the missing column.
 
                 feature_array = ak.to_numpy(a[col])
+                #Converts each feature column from Awkward to NumPy.
 
+                # Ensure consistent feature lengths
+                feature_length = len(feature_array)
                 if counts is None:
-                    counts = ak.count(a[col],axis=None)
-            #first time this loop runs (counts is None), it sets counts to the number of elements in the first feature column.
+                    counts = feature_length
                 else:
-                    assert np.array_equal(counts, ak.count(a[col],axis=None)), \
-                    f"Inconsistent feature lengths in column {col}"
-            #For every subsequent column, it checks that the number of elements matches using assert np.array_equal(...).
-            #ensures that all features have the same number of elements, preventing shape mismatches later.
-                
-                arrs.append(feature_array)  # Store features as Awkward Arrays
-                
+                    assert counts == feature_length, f"Inconsistent feature lengths in column {col}"
+                #How works: First column determines counts, and all subsequent columns must match.
+                #Otherwise logs that error
 
-            # Stack the features using Numpy
-            self._values[k] = np.stack(arrs, axis=-1)  # Stack features along last axis
+                # Flatten single-element lists into scalars
+                if feature_array.ndim == 2 and feature_array.shape[1] == 1:
+                    feature_array = feature_array.flatten()
+                    #Your dataset has lists inside lists e.g., 'pixelx_array': [[-0.7253]], 'pixely_array': [[1.1884]]
+                    #.flatten() converts [[-0.7253]] → [-0.7253], ensuring proper shape.
 
+                feature_arrays.append(feature_array)
+                #append it now that  all checks and balances have been passed
             
-                
+            
+            if feature_arrays:
+                self._values[feature_group] = np.stack(feature_arrays, axis=self.stack_axis)
+            #Stacks features along the chosen axis (stack_axis).
+            else:
+                logging.warning(f"Feature group '{feature_group}' has no valid columns.")
+            #Handles empty feature groups (e.g., if all columns were missing).
+
 
         logging.info('Finished loading file %s' % self.filepath)
-        #Logs a message indicating that the file has been fully processed
+        #Logs a message indicating that the dataset has been fully loaded
 
 
     def __len__(self):
         return len(self._label)
+        #Returns the number of samples in the dataset.
 
     def __getitem__(self, key):
         if key==self.label:
             return self._label
         else:
             return self._values[key]
+            #Allows indexing like a dictionary (dataset['pixelx_array'] returns that feature).
     
     @property
     def X(self):
@@ -245,6 +281,8 @@ class Dataset(object):
     def y(self):
         return self._label
 
+    #Encapsulates feature (X) and label (y) access.
+
     def shuffle(self, seed=None):
         if seed is not None:
             np.random.seed(seed)
@@ -253,6 +291,9 @@ class Dataset(object):
         for k in self._values:
             self._values[k] = self._values[k][shuffle_indices]
         self._label = self._label[shuffle_indices]
+    #Randomly shuffles the dataset.
+    #Uses consistent shuffling for features and labels.
+    #Need to ensure no index mixxing happening here
 
 
 # ### Load Dataset
@@ -262,6 +303,11 @@ class Dataset(object):
 
 
 train_dataset = Dataset('ProcessedData/signal1_96_32652/train_data/train_data.parquet', data_format='channel_last')
+
+"""print("Feature keys:", train_dataset.X.keys())  # Check feature names
+for key in train_dataset.X.keys():
+    print(f"First 5 samples from {key}:")
+    print(train_dataset.X[key][:5])  # Print first 5 entries"""
 
 
 # In[ ]:
