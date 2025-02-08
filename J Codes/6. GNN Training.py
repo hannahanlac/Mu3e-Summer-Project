@@ -5,8 +5,7 @@ import awkward as ak
 import awkward0
 from matplotlib import pyplot as plt
 from sklearn.preprocessing import StandardScaler
-import keras
-
+from tensorflow.python import keras
 
 # ### k-nearest neighbors
 # construct graph data using knn algorithm
@@ -63,8 +62,7 @@ def edge_conv(points, features, num_points, K, channels, with_bn=True, activatio
     with tf.name_scope(name='edgeconv'):
 
         # Compute kNN graph
-        D = keras.layers.Lambda(lambda x: batch_distance_matrix_general(x, x),
-                        output_shape=(None, num_points, num_points))(points)  # (N, P, P), Pairwise distances between nodes in graph space?
+        D = batch_distance_matrix_general(points, points) # (N, P, P), Pairwise distances between nodes in graph space?
         _, indices = tf.nn.top_k(-D, k=K + 1)  # (N, P, K+1), collects K+1 nearest neighbors of each node (including self)
         indices = indices[:, :, 1:]  # (N, P, K) removes the self-connection so that only the actual K-nearest neighbors remain
 
