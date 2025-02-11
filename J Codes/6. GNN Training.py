@@ -15,6 +15,15 @@ from tensorflow.python import keras
 #Calculates euclidean distances in graph space between nodes, knn will use this output to determine
 #what counts as being nn. Should be able to stay as is, general enough.
 def batch_distance_matrix_general(A, B):
+    print("A:", A)  # Print the variable directly
+    print("Type of A:", type(A))  # Check its data type
+    print("Shape of A:", A.shape)  # Print its shape (if it's a tensor)
+
+    print("train_dataset['points'] shape:", np.shape(train_dataset['points']))
+    print("input_shapes['points']:", input_shapes['points'])
+
+
+
     with tf.name_scope('dmat'):
         r_A = tf.reduce_sum(A * A, axis=2, keepdims=True)
         r_B = tf.reduce_sum(B * B, axis=2, keepdims=True)
@@ -46,7 +55,7 @@ def edge_conv(points, features, num_points, K, channels, with_bn=True, activatio
     Args:
         points: (N, P, C_p) - Hit positions (N events/sampels, P hits, C_p position features)
         features: (N, P, C_f) - Hit features (N events/samples, P hits, C_f feature channels)
-        num_points: Number of hits per event/sample
+        num_points: Number of hits per event/sample(batch)
         K: Number of nearest neighbors (int)
         channels: Tuple of MLP output sizes
         with_bn: Whether to apply batch normalization
@@ -128,7 +137,10 @@ def get_edgeconv(input_shapes):
     features = keras.Input(name='features', shape=input_shapes['features']) if 'features' in input_shapes else None
     mask = keras.Input(name='mask', shape=input_shapes['mask']) if 'mask' in input_shapes else None
 
-    num_points = points.shape[1]  # Get dynamically from input
+    num_points = tf.shape(points)[0]  # Dynamically get number of nodes in batch (num_points = batch size)
+    print("Dynamically determined num_points:", num_points)  # Debugging
+
+    points = tf.reshape(points, (-1, num_points, 6))  # Ensure correct format (batch_size, num_points, 6)
     K = 10  # Set a default value
     channels = [64, 128, 256]  # Define layer sizes
 
