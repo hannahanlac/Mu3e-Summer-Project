@@ -7,156 +7,6 @@ from matplotlib import pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from tensorflow.python import keras
 
-# ### k-nearest neighbors
-# construct graph data using knn algorithm
-
-# In[2]:
-
-#Calculates euclidean distances in graph space between nodes, knn will use this output to determine
-#what counts as being nn. Should be able to stay as is, general enough.
-def batch_distance_matrix_general(A, B):
-    print("A:", A)  # Print the variable directly
-    print("Type of A:", type(A))  # Check its data type
-    print("Shape of A:", A.shape)  # Print its shape (if it's a tensor)
-
-    print("train_dataset['points'] shape:", np.shape(train_dataset['points']))
-    print("input_shapes['points']:", input_shapes['points'])
-
-
-
-    with tf.name_scope('dmat'):
-        r_A = tf.reduce_sum(A * A, axis=2, keepdims=True)
-        r_B = tf.reduce_sum(B * B, axis=2, keepdims=True)
-        m = tf.matmul(A, tf.transpose(B, perm=(0, 2, 1)))
-        D = r_A - 2 * m + tf.transpose(r_B, perm=(0, 2, 1))
-        return D
-
-#collects the knn based on results from above? Or based on something else? I don't see D in here anywhere
-def knn(num_points, k, topk_indices, features):
-    # topk_indices: (N, P, K)
-    # features: (N, P, C)
-    with tf.name_scope('knn'):
-        queries_shape = tf.shape(features)
-        batch_size = queries_shape[0]
-        batch_indices = tf.tile(tf.reshape(tf.range(batch_size), (-1, 1, 1, 1)), (1, num_points, k, 1))
-        indices = tf.concat([batch_indices, tf.expand_dims(topk_indices, axis=3)], axis=3)  # (N, P, K, 2)
-        return tf.gather_nd(features, indices)
-
-
-# ### Edge Convulution operation
-# Attention: use (1,1) kernel Conv2D to perform MLP
-
-# In[3]:
-
-#main message passing operation of GNN can make major theory tweaks here
-def edge_conv(points, features, num_points, K, channels, with_bn=True, activation='relu', name='edgeconv'):
-    """Modified EdgeConv for Edge Classification
-    
-    Args:
-        points: (N, P, C_p) - Hit positions (N events/sampels, P hits, C_p position features)
-        features: (N, P, C_f) - Hit features (N events/samples, P hits, C_f feature channels)
-        num_points: Number of hits per event/sample(batch)
-        K: Number of nearest neighbors (int)
-        channels: Tuple of MLP output sizes
-        with_bn: Whether to apply batch normalization
-        activation: Activation function (default: 'relu')
-        name: Name scope for layers
-        pooling: pooling method ('max' or 'average')
-    
-    Returns:
-        edge_logits: (N, P, K, 1) - Binary classification for each edge
-    """
-    
-
-    with tf.name_scope(name='edgeconv'):
-
-        # Compute kNN graph
-        D = batch_distance_matrix_general(points, points) # (N, P, P), Pairwise distances between nodes in graph space?
-        _, indices = tf.nn.top_k(-D, k=K + 1)  # (N, P, K+1), collects K+1 nearest neighbors of each node (including self)
-        indices = indices[:, :, 1:]  # (N, P, K) removes the self-connection so that only the actual K-nearest neighbors remain
-
-        # Get neighbor features
-        knn_features = knn(num_points, K, indices, features)  # (N, P, K, C_f) 
-        #extracts features of the K nearest neighbors for each hit and stores by calling knn function
-        knn_features_center = tf.tile(tf.expand_dims(features, axis=2), (1, 1, K, 1))  # (N, P, K, C_f)
-        #duplicates the central hit’s features (i.e., hit focusing on currently) so can compare with neighbors
-        edge_features = tf.concat([knn_features_center, knn_features, tf.subtract(knn_features_center)], axis=-1)  # (N, P, K, 2*C_f)
-        #N - no. graphs (group of hits batched by some metric), P - no. hits per graph, K = no. nearest neighbours per hit, 2*C_f = feature dimension (includes original features and feature differences) i.e. no. features describing each hit
-        # creates edge features by i) storing central hit fts, storing relative differences between central and neighboring hits
-
-        # Edge MLP - Defines multi-layer perceptron to process edge features
-        x = edge_features
-        #sets x = edge_features computed in prev function
-
-        for idx, channel in enumerate(channels):
-            #Loops over channels list, specifies number of filters for each MLP layer
-            #idx keeps track of the layer index
-            x = keras.layers.Conv2D(channel, kernel_size=(1, 1), strides=1, 
-                                    data_format='channels_last', 
-                                    use_bias=not with_bn,  # Ensuring BN compatibility, No bias if BN is applied
-                                    kernel_initializer='HeNormal', 
-                                    name=f"{name}_conv{idx}")(x)
-            #Uses 1x1 convolutions to apply transformations independently to each edge
-            #channel defines the number of filters (output feature dimensions)
-            #(1,1) kernel ensures per-edge transformation without affecting spatial structure.
-            #activation=activation applies a non-linearity (default = ReLU)
-            #name=f'{name}_conv{idx}' assigns a unique name to each layer (easier to debug)
-
-            if with_bn:
-                x = keras.layers.BatchNormalization(name=f"{name}_bn{idx}")(x)
-            #Batch normalization (with_bn) stabilizes training by reducing internal covariate shift - if enabled, runs here
-            #Normalizes the output of the convolutional layer.
-
-            if activation:
-                x = keras.layers.Activation(activation, name=f"{name}_act{idx}")(x)
-
-
-        """# shortcut
-        sc = keras.layers.Conv2D(channels[-1], kernel_size=(1, 1), strides=1, data_format='channels_last',
-                                 use_bias=False if with_bn else True, kernel_initializer='HeNormal', name='%s_sc_conv' % name)(tf.expand_dims(features, axis=2))
-        if with_bn:
-            sc = keras.layers.BatchNormalization(name='%s_sc_bn' % name)(sc)
-        sc = tf.squeeze(sc, axis=2)"""
-
-        # Final classification layer (1 output per edge)
-        edge_logits = keras.layers.Conv2D(1, (1, 1), activation='sigmoid', name=f'{name}_output')(x)
-
-        return edge_logits  # (N, P, K, 1)
-        
-
-# In[4]:
-
-
-def get_edgeconv(input_shapes):
-    """
-    input_shapes : dict
-        The shapes of each input (`points`, `features`, `mask`).
-    """
-
-    points = keras.Input(name='points', shape=input_shapes['points'])
-    features = keras.Input(name='features', shape=input_shapes['features']) if 'features' in input_shapes else None
-    mask = keras.Input(name='mask', shape=input_shapes['mask']) if 'mask' in input_shapes else None
-
-    num_points = tf.shape(points)[0]  # Dynamically get number of nodes in batch (num_points = batch size)
-    print("Dynamically determined num_points:", num_points)  # Debugging
-
-    points = tf.reshape(points, (-1, num_points, 6))  # Ensure correct format (batch_size, num_points, 6)
-    K = 10  # Set a default value
-    channels = [64, 128, 256]  # Define layer sizes
-
-    edge_logits = edge_conv(points, features, num_points, K, channels, name='edgeconv')
-
-
-    # New Model: Outputs edge classification logits directly
-    GCNN_model = keras.Model(inputs=[points, features, mask], outputs=edge_logits, name='EdgeClassifierGCNN')
-
-    return GCNN_model
-
-
-# #### Stack and pad arrays
-
-# In[6]:
-
 
 import logging
 
@@ -306,11 +156,229 @@ class Dataset(object):
     #Need to ensure no index mixxing happening here
 
 
+
+
+
+# In[2]:
+
+def Batching(frames, hits_dict, labels_dict, frames_per_batch):
+    """
+    Groups hit points by frame number and creates batches of frames for training.
+
+    Parameters:
+    - frames: List of unique frame numbers.
+    - hits_dict: Dictionary mapping frame numbers to hit feature tensors (P, C_f).
+    - labels_dict: Dictionary mapping frame numbers to label tensors (P,).
+    - frames_per_batch: Number of frames to include in each batch.
+
+    Returns:
+    - A tf.data.Dataset containing batches of (X, y), where:
+      - X has shape (frames_per_batch, P, C_f)
+      - y has shape (frames_per_batch, P)
+    """
+
+    batched_features = []  # Stores batches of hit features
+    batched_labels = []    # Stores batches of labels
+
+    # Loop over frames in steps of frames_per_batch
+    for i in range(0, len(frames), frames_per_batch):
+        batch_frames = frames[i:i+frames_per_batch]  # Select frames_per_batch frames
+
+        # Extract hit features and labels for these selected frames
+        batch_hits = [hits_dict[frame] for frame in batch_frames]
+        batch_labels = [labels_dict[frame] for frame in batch_frames]
+
+        # Convert lists into stacked tensors for batching
+        batched_features.append(tf.stack(batch_hits))   # Shape: (frames_per_batch, P, C_f)
+        batched_labels.append(tf.stack(batch_labels))   # Shape: (frames_per_batch, P)
+
+    # Convert lists to a TensorFlow dataset
+    train_dataset = tf.data.Dataset.from_tensor_slices((batched_features, batched_labels))
+
+    # Shuffle the dataset and batch it for training
+    train_dataset = train_dataset.shuffle(buffer_size=100).batch(1)  # 1 batch = 1 group of frames_per_batch
+
+    return train_dataset
+
+
+
+
+
+#Calculates euclidean distances in graph space between nodes, knn will use this output to determine
+#what counts as being nn. Should be able to stay as is, general enough.
+def batch_distance_matrix_general(A, B):
+    """print("A:", A)  # Print the variable directly
+    print("Type of A:", type(A))  # Check its data type
+    print("Shape of A:", A.shape)  # Print its shape (if it's a tensor)
+
+    print("train_dataset['points'] shape:", np.shape(train_dataset['points']))
+    print("input_shapes['points']:", input_shapes['points'])"""
+
+    with tf.name_scope('dmat'):
+        r_A = tf.reduce_sum(A * A, axis=2, keepdims=True)
+        r_B = tf.reduce_sum(B * B, axis=2, keepdims=True)
+        m = tf.matmul(A, tf.transpose(B, perm=(0, 2, 1)))
+        D = r_A - 2 * m + tf.transpose(r_B, perm=(0, 2, 1))
+        return D
+
+
+# ### k-nearest neighbors
+# construct graph data using knn algorithm
+#collects the knn based on results from above? Or based on something else? I don't see D in here anywhere
+def knn(num_points, k, topk_indices, features):
+    # topk_indices: (N, P, K)
+    # features: (N, P, C)
+    with tf.name_scope('knn'):
+        queries_shape = tf.shape(features)
+        batch_size = queries_shape[0]
+        batch_indices = tf.tile(tf.reshape(tf.range(batch_size), (-1, 1, 1, 1)), (1, num_points, k, 1))
+        indices = tf.concat([batch_indices, tf.expand_dims(topk_indices, axis=3)], axis=3)  # (N, P, K, 2)
+        
+        # Gather neighbor features, preserving C_f dimension
+        knn_features = tf.gather_nd(features, indices)  # (N, P, K, C_f)
+
+        # Ensure correct shape
+        knn_features = tf.ensure_shape(knn_features, [None, None, k, None])
+
+        return knn_features
+    
+
+
+
+# ### Edge Convulution operation
+# Attention: use (1,1) kernel Conv2D to perform MLP
+
+# In[3]:
+
+#main message passing operation of GNN can make major theory tweaks here
+def edge_conv(points, features, num_points, K, channels, with_bn=True, activation='relu', name='edgeconv'):
+    """Modified EdgeConv for Edge Classification
+    
+    Args:
+        points: (N, P, C_p) - Hit positions (N events/sampels, P hits, C_p position features)
+        features: (N, P, C_f) - Hit features (N events/samples, P hits, C_f feature channels)
+        num_points: Number of hits per event/sample(batch)
+        K: Number of nearest neighbors (int)
+        channels: Tuple of MLP output sizes
+        with_bn: Whether to apply batch normalization
+        activation: Activation function (default: 'relu')
+        name: Name scope for layers
+        pooling: pooling method ('max' or 'average')
+    
+    Returns:
+        edge_logits: (N, P, K, 1) - Binary classification for each edge
+    """
+    
+
+    with tf.name_scope(name='edgeconv'):
+
+        # Compute kNN graph
+        D = batch_distance_matrix_general(points, points) # (N, P, P), Pairwise distances between nodes in graph space?
+        _, indices = tf.nn.top_k(-D, k=K + 1)  # (N, P, K+1), collects K+1 nearest neighbors of each node (including self)
+        indices = indices[:, :, 1:]  # (N, P, K) removes the self-connection so that only the actual K-nearest neighbors remain
+
+        print("Shape of num_points:", tf.shape(num_points))
+        print("K:", tf.shape(K))
+        print("Shape of indices:", tf.shape(indices))
+        print("Shape of features:", tf.shape(features)) 
+
+        # Get neighbor features
+        knn_features = knn(num_points, K, indices, features)  # (N, P, K, C_f) 
+        #extracts features of the K nearest neighbors for each hit and stores by calling knn function
+        print("Shape of knn_features:", tf.shape(knn_features)) 
+
+        features = tf.reshape(features, (-1, num_points, 6))  # Ensure batch size is included
+
+        print("Shape of features:", tf.shape(features))  
+
+        knn_features_center = tf.tile(tf.expand_dims(features, axis=2), (1, 1, K, 1))  # (N, P, K, C_f)
+
+        print("Shape of knn_features_center:", tf.shape(knn_features_center))
+
+        #duplicates the central hit’s features (i.e., hit focusing on currently) so can compare with neighbors
+        edge_features = tf.concat([knn_features_center, tf.subtract(knn_features, knn_features_center)], axis=-1)  # (N, P, K, 2*C_f)
+        #N - no. graphs (group of hits batched by some metric), P - no. hits per graph, K = no. nearest neighbours per hit, 2*C_f = feature dimension (includes original features and feature differences) i.e. no. features describing each hit
+        # creates edge features by i) storing central hit fts, storing relative differences between central and neighboring hits
+
+        # Edge MLP - Defines multi-layer perceptron to process edge features
+        x = edge_features
+        #sets x = edge_features computed in prev function
+
+        for idx, channel in enumerate(channels):
+            #Loops over channels list, specifies number of filters for each MLP layer
+            #idx keeps track of the layer index
+            x = keras.layers.Conv2D(channel, kernel_size=(1, 1), strides=1, 
+                                    data_format='channels_last', 
+                                    use_bias=not with_bn,  # Ensuring BN compatibility, No bias if BN is applied
+                                    kernel_initializer='HeNormal', 
+                                    name=f"{name}_conv{idx}")(x)
+            #Uses 1x1 convolutions to apply transformations independently to each edge
+            #channel defines the number of filters (output feature dimensions)
+            #(1,1) kernel ensures per-edge transformation without affecting spatial structure.
+            #activation=activation applies a non-linearity (default = ReLU)
+            #name=f'{name}_conv{idx}' assigns a unique name to each layer (easier to debug)
+
+            if with_bn:
+                x = keras.layers.BatchNormalization(name=f"{name}_bn{idx}")(x)
+            #Batch normalization (with_bn) stabilizes training by reducing internal covariate shift - if enabled, runs here
+            #Normalizes the output of the convolutional layer.
+
+            if activation:
+                x = keras.layers.Activation(activation, name=f"{name}_act{idx}")(x)
+
+
+        """# shortcut
+        sc = keras.layers.Conv2D(channels[-1], kernel_size=(1, 1), strides=1, data_format='channels_last',
+                                 use_bias=False if with_bn else True, kernel_initializer='HeNormal', name='%s_sc_conv' % name)(tf.expand_dims(features, axis=2))
+        if with_bn:
+            sc = keras.layers.BatchNormalization(name='%s_sc_bn' % name)(sc)
+        sc = tf.squeeze(sc, axis=2)"""
+
+        # Final classification layer (1 output per edge)
+        edge_logits = keras.layers.Conv2D(1, (1, 1), activation='sigmoid', name=f'{name}_output')(x)
+
+        return edge_logits  # (N, P, K, 1)
+        
+
+
+
+
+# In[4]:
+
+
+def get_edgeconv(input_shapes):
+    """
+    input_shapes : dict
+        The shapes of each input (`points`, `features`, `mask`).
+    """
+
+    points = keras.Input(name='points', shape=input_shapes['points'])
+    features = keras.Input(name='features', shape=input_shapes['features']) if 'features' in input_shapes else None
+    mask = keras.Input(name='mask', shape=input_shapes['mask']) if 'mask' in input_shapes else None
+
+    num_points = tf.shape(points)[0]  # Dynamically get number of nodes in batch (num_points = batch size)
+    print("Dynamically determined num_points:", num_points)  # Debugging
+
+    points = tf.reshape(points, (-1, num_points, 6))  # Ensure correct format (batch_size, num_points, 6)
+    K = 10  # Set a default value
+    channels = [64, 128, 256]  # Define layer sizes
+
+    edge_logits = edge_conv(points, features, num_points, K, channels, name='edgeconv')
+
+
+    # New Model: Outputs edge classification logits directly
+    GCNN_model = keras.Model(inputs=[points, features, mask], outputs=edge_logits, name='EdgeClassifierGCNN')
+
+    return GCNN_model
+
+
+
+
+
 # ### Load Dataset
 # Change path to your train_dataset ( train + validation )
 
 # In[ ]:
-
 
 train_dataset = Dataset('ProcessedData/signal1_96_32652/train_data/train_data.parquet', data_format='channel_last')
 
@@ -343,6 +411,19 @@ num_epochs = 10
 batch_size = 64
 validation_split=0.25
 num_train_steps = (len(train_dataset['points'])*(1-validation_split) // batch_size) * num_epochs
+
+frames_per_batch = 10  # You can change this value for different experiments
+
+# Extract unique frame numbers
+frames = sorted(set(train_dataset["framenumber"]))
+
+# Create dictionaries mapping frame numbers to data
+hits_dict = {frame: train_dataset["points"][train_dataset["framenumber"] == frame] for frame in frames}
+labels_dict = {frame: train_dataset["y"][train_dataset["framenumber"] == frame] for frame in frames}
+
+# Create batched dataset
+batched_dataset = Batching(frames, hits_dict, labels_dict, frames_per_batch)
+
 
 #Polynomial lr Decay
 def lr_schedule(initial_learning_rate,end_learning_rate):
@@ -393,7 +474,7 @@ train_dataset.shuffle()
 
 # In[ ]:
 
-
+# Train model
 history = GCNN_model.fit(train_dataset.X, train_dataset.y,
           batch_size=batch_size,
           epochs=10,                                                    # --- set number of training epochs ---      
