@@ -6,6 +6,7 @@ import awkward0
 from matplotlib import pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from tensorflow.python import keras
+import os
 
 
 import logging
@@ -18,12 +19,26 @@ logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(m
 # In[7]:
 
 class Dataset(object):
+    
+    """Dataset class to load and preprocess data from a Parquet file.
+
+    Args:
+        filepath (str): Path to the Parquet dataset.
+        feature_dict (dict, optional): Dictionary mapping feature groups to feature names.
+        label (str, optional): The target variable (default: 'tid_array').
+    data_format (str, optional): Feature array structure ('channel_first' or 'channel_last')."""
 
     def __init__(self, filepath, feature_dict = None, label='tid_array', data_format='channel_first'):
+
+        assert data_format in ('channel_first', 'channel_last'), "Invalid data format"
+        #Ensures data_format is either 'channel_first' or 'channel_last'. If not, we've added error message to tell us this
+
+
         #self - convention in classes to refer to any proccessing corresponding to the current instance being worked with
         #filepath: Path to the Parquet dataset. feature_dict: Dictionary mapping feature groups to feature names. Defaults/Starts to/with None
         #label: The target variable (default: 'tid_array'). data_format: Determines how feature arrays are structured ('channel_first' or 'channel_last').
         self.filepath = filepath
+        self.label = label
 
         self.feature_dict = feature_dict if feature_dict is not None else {}
         #If feature_dict is not None, use its given value. Else, use a new empty dictionary {}.
@@ -35,25 +50,31 @@ class Dataset(object):
             self.feature_dict['mask'] = ['layer_array']
             #"pixelx_array": b,"pixely_array": c,"layer_array"
 
-        self.label = label
-        assert data_format in ('channel_first', 'channel_last'), "Invalid data format"
-        #Ensures data_format is either 'channel_first' or 'channel_last'. If not, we've added error message to tell us this
-
+        
         self.stack_axis = 1 if data_format == 'channel_first' else -1
         #Sets the axis for stacking features: 1 → Features will be stacked along channels (channel_first).
         #-1 → Features will be stacked along last dimension (channel_last).
-        
         self._values = {}
         self._label = None
+
         self._load()
 
+
     def _load(self):
+        """Loads the dataset from a Parquet file and performs integrity checks."""
+
+        if not os.path.exists(self.filepath):
+            raise FileNotFoundError(f"Dataset file '{self.filepath}' not found.")
+
         logging.info('Start loading file %s' % self.filepath)
         #logs a message indicating that the loading process has started - useful for debugging later
 
         a = ak.from_parquet(self.filepath)
         #Loads a dataset from a Parquet file into an Awkward Array (a)
         #print(ak.to_list(a[:5]))  # Prints first 5 entries in list 
+
+        if len(a) == 0:
+            raise ValueError("Loaded dataset is empty!")
 
         # Check if label exists in the dataset
         if self.label not in a.fields:
@@ -69,9 +90,12 @@ class Dataset(object):
         #extracted data is stored in self._label for later use
         #could be issue here, how determining where / what label is?
 
+        if self._label.ndim != 1:
+            raise ValueError(f"Label array must be 1D, but got shape {self._label.shape}")
+
         self._values = {}
         # Initialize dictionary to store feature arrays
-        
+
         counts = None
         #This variable will store the number of elements in the first feature column that is processed
         #used to ensure that all feature columns have the same number of elements
@@ -96,7 +120,7 @@ class Dataset(object):
                 if counts is None:
                     counts = feature_length
                 else:
-                    assert counts == feature_length, f"Inconsistent feature lengths in column {col}"
+                    assert counts == feature_length, f"Inconsistent feature lengths in column '{col}'! Expected {counts}, got {feature_length}."
                 #How works: First column determines counts, and all subsequent columns must match.
                 #Otherwise logs that error
 
@@ -129,8 +153,10 @@ class Dataset(object):
     def __getitem__(self, key):
         if key==self.label:
             return self._label
-        else:
+        elif key in self._values:
             return self._values[key]
+        else:
+            raise KeyError(f"Feature '{key}' not found in dataset.")
             #Allows indexing like a dictionary (dataset['pixelx_array'] returns that feature).
     
     @property
@@ -146,10 +172,13 @@ class Dataset(object):
     def shuffle(self, seed=None):
         if seed is not None:
             np.random.seed(seed)
+
         shuffle_indices = np.arange(len(self))
         np.random.shuffle(shuffle_indices)
+
         for k in self._values:
             self._values[k] = self._values[k][shuffle_indices]
+
         self._label = self._label[shuffle_indices]
     #Randomly shuffles the dataset.
     #Uses consistent shuffling for features and labels.
@@ -166,10 +195,10 @@ def Batching(frames, hits_dict, labels_dict, frames_per_batch):
     Groups hit points by frame number and creates batches of frames for training.
 
     Parameters:
-    - frames: List of unique frame numbers.
-    - hits_dict: Dictionary mapping frame numbers to hit feature tensors (P, C_f).
-    - labels_dict: Dictionary mapping frame numbers to label tensors (P,).
-    - frames_per_batch: Number of frames to include in each batch.
+    - frames (list): List of unique frame numbers.
+    - hits_dict (dict): Dictionary mapping frame numbers to hit feature tensors (P, C_f).
+    - labels_dict (dict): Dictionary mapping frame numbers to label tensors (P,).
+    - frames_per_batch (int): Number of frames to include in each batch.
 
     Returns:
     - A tf.data.Dataset containing batches of (X, y), where:
@@ -177,29 +206,65 @@ def Batching(frames, hits_dict, labels_dict, frames_per_batch):
       - y has shape (frames_per_batch, P)
     """
 
+    # Ensure frames_per_batch is valid
+    if not isinstance(frames_per_batch, int) or frames_per_batch <= 0:
+        raise ValueError(f"frames_per_batch must be a positive integer, got {frames_per_batch}")
+
+    # Ensure there are enough frames for at least one batch
+    if len(frames) < frames_per_batch:
+        raise ValueError(f"Number of frames ({len(frames)}) is less than frames_per_batch ({frames_per_batch})")
+
+
     batched_features = []  # Stores batches of hit features
     batched_labels = []    # Stores batches of labels
+
+    #Check frame consistency
+    missing_frames = [frame for frame in frames if frame not in hits_dict or frame not in labels_dict]
+    if missing_frames:
+        raise KeyError(f"Some frames are missing from hits_dict or labels_dict: {missing_frames}")
+
+    # Verify tensor shapes
+    first_frame = frames[0]
+    expected_feature_shape = hits_dict[first_frame].shape  # Expect (P, C_f)
+    expected_label_shape = labels_dict[first_frame].shape  # Expect (P,)
+
+    for frame in frames:
+        hit_shape = hits_dict[frame].shape
+        label_shape = labels_dict[frame].shape
+
+        if hit_shape != expected_feature_shape:
+            raise ValueError(f"Inconsistent feature shape for frame {frame}. Expected {expected_feature_shape}, got {hit_shape}")
+        
+        if label_shape != expected_label_shape:
+            raise ValueError(f"Inconsistent label shape for frame {frame}. Expected {expected_label_shape}, got {label_shape}")
 
     # Loop over frames in steps of frames_per_batch
     for i in range(0, len(frames), frames_per_batch):
         batch_frames = frames[i:i+frames_per_batch]  # Select frames_per_batch frames
 
+        # Ensure batch is full (handle last batch case)
+        if len(batch_frames) < frames_per_batch:
+            continue  # Skip incomplete batch
+
         # Extract hit features and labels for these selected frames
-        batch_hits = [hits_dict[frame] for frame in batch_frames]
-        batch_labels = [labels_dict[frame] for frame in batch_frames]
+        batch_hits = np.stack([hits_dict[frame] for frame in batch_frames])  # Shape: (frames_per_batch, P, C_f)
+        batch_labels = np.stack([labels_dict[frame] for frame in batch_frames])  # Shape: (frames_per_batch, P)
 
-        # Convert lists into stacked tensors for batching
-        batched_features.append(tf.stack(batch_hits))   # Shape: (frames_per_batch, P, C_f)
-        batched_labels.append(tf.stack(batch_labels))   # Shape: (frames_per_batch, P)
+        #Append these stacked features into this batch's dictionary of values and labels
+        batched_features.append(batch_hits)
+        batched_labels.append(batch_labels)
 
-    # Convert lists to a TensorFlow dataset
-    train_dataset = tf.data.Dataset.from_tensor_slices((batched_features, batched_labels))
+    # Convert lists to TensorFlow tensors
+    batched_features = tf.convert_to_tensor(batched_features, dtype=tf.float32)
+    batched_labels = tf.convert_to_tensor(batched_labels, dtype=tf.int32)
 
-    # Shuffle the dataset and batch it for training
-    train_dataset = train_dataset.shuffle(buffer_size=100).batch(1)  # 1 batch = 1 group of frames_per_batch
+    # Convert to a TensorFlow dataset
+    batched_dataset = tf.data.Dataset.from_tensor_slices((batched_features, batched_labels))
 
-    return train_dataset
+    # Shuffle before batching for proper training
+    batched_dataset = batched_dataset.shuffle(buffer_size=len(batched_features)).batch(1) # 1 batch = 1 group of frames_per_batch
 
+    return batched_dataset
 
 
 
