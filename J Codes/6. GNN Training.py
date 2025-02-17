@@ -8,6 +8,10 @@ from sklearn.preprocessing import StandardScaler
 from tensorflow.python import keras
 import os
 
+print(tf.__version__)
+print(dir(tf.keras))
+print(hasattr(tf.keras, "layers"))  # Should return True
+
 
 import logging
 
@@ -52,8 +56,8 @@ class Dataset(object):
 
         
         self.stack_axis = 1 if data_format == 'channel_first' else -1
-        #Sets the axis for stacking features: 1 → Features will be stacked along channels (channel_first).
-        #-1 → Features will be stacked along last dimension (channel_last).
+        #Sets the axis for stacking features: 1 -> Features will be stacked along channels (channel_first).
+        #-1 -> Features will be stacked along last dimension (channel_last).
         self._values = {}
         self._label = None
 
@@ -89,6 +93,7 @@ class Dataset(object):
         #Extracts the label column from the dataset (a)
         #extracted data is stored in self._label for later use
         #could be issue here, how determining where / what label is?
+        print(f"Label '{self.label}' shape: {self._label.shape}")
 
         if self._label.ndim != 1:
             raise ValueError(f"Label array must be 1D, but got shape {self._label.shape}")
@@ -128,7 +133,7 @@ class Dataset(object):
                 if feature_array.ndim == 2 and feature_array.shape[1] == 1:
                     feature_array = feature_array.flatten()
                     #Your dataset has lists inside lists e.g., 'pixelx_array': [[-0.7253]], 'pixely_array': [[1.1884]]
-                    #.flatten() converts [[-0.7253]] → [-0.7253], ensuring proper shape.
+                    #.flatten() converts [[-0.7253]] -> [-0.7253], ensuring proper shape.
 
                 feature_arrays.append(feature_array)
                 #append it now that  all checks and balances have been passed
@@ -137,6 +142,8 @@ class Dataset(object):
             if feature_arrays:
                 self._values[feature_group] = np.stack(feature_arrays, axis=self.stack_axis)
             #Stacks features along the chosen axis (stack_axis).
+                print(f"Feature Group '{feature_group}' shape: {self._values[feature_group].shape}")
+
             else:
                 logging.warning(f"Feature group '{feature_group}' has no valid columns.")
             #Handles empty feature groups (e.g., if all columns were missing).
@@ -246,6 +253,8 @@ def Batching(frames, hits_dict, labels_dict, frames_per_batch):
         if len(batch_frames) < frames_per_batch:
             continue  # Skip incomplete batch
 
+        print(f"Processing batch {i//frames_per_batch + 1} with {len(batch_frames)} frames")  # Check batch count
+
         # Extract hit features and labels for these selected frames
         batch_hits = np.stack([hits_dict[frame] for frame in batch_frames])  # Shape: (frames_per_batch, P, C_f)
         batch_labels = np.stack([labels_dict[frame] for frame in batch_frames])  # Shape: (frames_per_batch, P)
@@ -257,6 +266,9 @@ def Batching(frames, hits_dict, labels_dict, frames_per_batch):
     # Convert lists to TensorFlow tensors
     batched_features = tf.convert_to_tensor(batched_features, dtype=tf.float32)
     batched_labels = tf.convert_to_tensor(batched_labels, dtype=tf.int32)
+
+    print(f"Stacked features shape: {batched_features[-1].shape}")  # Check shape after stacking
+    print(f"Stacked labels shape: {batched_labels[-1].shape}")
 
     # Convert to a TensorFlow dataset
     batched_dataset = tf.data.Dataset.from_tensor_slices((batched_features, batched_labels))
@@ -272,25 +284,34 @@ def Batching(frames, hits_dict, labels_dict, frames_per_batch):
 #Calculates euclidean distances in graph space between nodes, knn will use this output to determine
 #what counts as being nn. Should be able to stay as is, general enough.
 def batch_distance_matrix_general(A, B):
-    """print("A:", A)  # Print the variable directly
-    print("Type of A:", type(A))  # Check its data type
-    print("Shape of A:", A.shape)  # Print its shape (if it's a tensor)
-
-    print("train_dataset['points'] shape:", np.shape(train_dataset['points']))
-    print("input_shapes['points']:", input_shapes['points'])"""
 
     with tf.name_scope('dmat'):
+
+        #Compute squared norms
         r_A = tf.reduce_sum(A * A, axis=2, keepdims=True)
         r_B = tf.reduce_sum(B * B, axis=2, keepdims=True)
+
+        #Compute distance matrix
         m = tf.matmul(A, tf.transpose(B, perm=(0, 2, 1)))
         D = r_A - 2 * m + tf.transpose(r_B, perm=(0, 2, 1))
+
+        print(r_A)
+        print(r_B)
+        print(m)
+        
+        print(D)
+        print(f"Distance matrix shape: {D.shape}")
+        print(f"Min distance: {tf.reduce_min(D)}, Max distance: {tf.reduce_max(D)}")
+
         return D
+
 
 
 # ### k-nearest neighbors
 # construct graph data using knn algorithm
 #collects the knn based on results from above? Or based on something else? I don't see D in here anywhere
 def knn(num_points, k, topk_indices, features):
+    print(f"Features shape: {features.shape}")
     # topk_indices: (N, P, K)
     # features: (N, P, C)
     with tf.name_scope('knn'):
@@ -298,7 +319,7 @@ def knn(num_points, k, topk_indices, features):
         batch_size = queries_shape[0]
         batch_indices = tf.tile(tf.reshape(tf.range(batch_size), (-1, 1, 1, 1)), (1, num_points, k, 1))
         indices = tf.concat([batch_indices, tf.expand_dims(topk_indices, axis=3)], axis=3)  # (N, P, K, 2)
-        
+
         # Gather neighbor features, preserving C_f dimension
         knn_features = tf.gather_nd(features, indices)  # (N, P, K, C_f)
 
@@ -342,23 +363,14 @@ def edge_conv(points, features, num_points, K, channels, with_bn=True, activatio
         _, indices = tf.nn.top_k(-D, k=K + 1)  # (N, P, K+1), collects K+1 nearest neighbors of each node (including self)
         indices = indices[:, :, 1:]  # (N, P, K) removes the self-connection so that only the actual K-nearest neighbors remain
 
-        print("Shape of num_points:", tf.shape(num_points))
-        print("K:", tf.shape(K))
-        print("Shape of indices:", tf.shape(indices))
-        print("Shape of features:", tf.shape(features)) 
-
         # Get neighbor features
         knn_features = knn(num_points, K, indices, features)  # (N, P, K, C_f) 
-        #extracts features of the K nearest neighbors for each hit and stores by calling knn function
-        print("Shape of knn_features:", tf.shape(knn_features)) 
+        #extracts features of the K nearest neighbors for each hit and stores by calling knn function 
 
-        features = tf.reshape(features, (-1, num_points, 6))  # Ensure batch size is included
-
-        print("Shape of features:", tf.shape(features))  
+        print(f"KNN Features shape: {features.shape}")
 
         knn_features_center = tf.tile(tf.expand_dims(features, axis=2), (1, 1, K, 1))  # (N, P, K, C_f)
 
-        print("Shape of knn_features_center:", tf.shape(knn_features_center))
 
         #duplicates the central hit’s features (i.e., hit focusing on currently) so can compare with neighbors
         edge_features = tf.concat([knn_features_center, tf.subtract(knn_features, knn_features_center)], axis=-1)  # (N, P, K, 2*C_f)
@@ -422,9 +434,9 @@ def get_edgeconv(input_shapes):
     mask = keras.Input(name='mask', shape=input_shapes['mask']) if 'mask' in input_shapes else None
 
     num_points = tf.shape(points)[0]  # Dynamically get number of nodes in batch (num_points = batch size)
-    print("Dynamically determined num_points:", num_points)  # Debugging
 
     points = tf.reshape(points, (-1, num_points, 6))  # Ensure correct format (batch_size, num_points, 6)
+    features = tf.reshape(features, (-1, num_points, 6))  # Ensure batch size is included (batch_size, num_points, 6/C_f)
     K = 10  # Set a default value
     channels = [64, 128, 256]  # Define layer sizes
 
@@ -488,6 +500,7 @@ labels_dict = {frame: train_dataset["y"][train_dataset["framenumber"] == frame] 
 
 # Create batched dataset
 batched_dataset = Batching(frames, hits_dict, labels_dict, frames_per_batch)
+print(batched_dataset)
 
 
 #Polynomial lr Decay
