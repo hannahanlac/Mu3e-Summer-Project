@@ -74,15 +74,15 @@ def HitsInFrame(frame_number, mu3eTrame):
 #######################################################################################################
 
 # Create directory for file saving
-directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/DataFilesV5.3/signal1_99_32652" #NOTE: currently this needs to be changed each time
+directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/DataFilesV5.3/signal1_98_32652" #NOTE: currently this needs to be changed each time
 if not os.path.exists(directory):
     os.makedirs(directory)
-file_name = "hits_data_signal1_99_32652_with_mcinfo_tid_sorted.csv"
+file_name = "hits_data_signal1_98_32652_with_mcinfo_tid_sorted.csv"
 if os.path.exists(file_name): # Deletes old version of file if present
     os.remove(file_name)
 
 # Inputting a file and state which one testing
-root_file_path = "/root/Mu3eProject/RawData/v5.3/signal1_99_32652_execution_1_run_num_561343_sort.root"
+root_file_path = "/root/Mu3eProject/RawData/v5.3/signal1_98_32652_execution_1_run_num_135993_sort.root"
 print("Test with the file:", root_file_path) 
 print()
 

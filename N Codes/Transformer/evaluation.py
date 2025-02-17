@@ -43,7 +43,7 @@ def MomentumAccuracy(file):
     plt.show()
 
 
-file = "/root/Mu3eProject/RawData/TrirecFiles/signal1_99_32652/trirec_data_signal1_99_32652.csv"
+file = "/root/Mu3eProject/RawData/TrirecFiles/signal1_99_32652/trirec_data_signal1_99_32652_frames.csv"
 MomentumAccuracy(file)
 
 

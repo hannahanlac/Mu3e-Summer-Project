@@ -66,15 +66,15 @@ def TruthInfo(frame_number, mu3eTree):
 #######################################################################################################
 
 # Create directory for file saving
-directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/DataFilesV5.3/signal1_99_32652" #NOTE: currently this needs to be changed each time
+directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/DataFilesV5.3/signal1_98_32652" #NOTE: currently this needs to be changed each time
 if not os.path.exists(directory):
     os.makedirs(directory)
-file_name = "mc_truth_signal1_99_32652.csv"
+file_name = "traj_truth_signal1_98_32652.csv"
 if os.path.exists(file_name): # Deletes old version of file if present
     os.remove(file_name)
 
 # Inputting a file and state which one testing
-file_path = "/root/Mu3eProject/RawData/v5.3/signal1_99_32652_execution_1_run_num_561343_sort.root"
+file_path = "/root/Mu3eProject/RawData/v5.3/signal1_98_32652_execution_1_run_num_135993_sort.root"
 print("Test with the file:", file_path) 
 print()
 
@@ -88,7 +88,7 @@ mu3eTree = signal_file['mu3e'].arrays([
 
 
 total_frames = len(mu3eTree)
-frame_numbers = list(range(0, 5000)) # Set to 5000 for now to avoid files being too big for git pushing
+frame_numbers = list(range(0, total_frames)) # Set to 5000 for now to avoid files being too big for git pushing
 print('Total number of frames in file:',total_frames)
 
 #Iterate over all frames, collect hit information

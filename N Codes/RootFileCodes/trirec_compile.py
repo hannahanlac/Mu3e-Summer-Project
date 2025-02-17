@@ -23,6 +23,7 @@ def FrameTracks(frame_number, frames_tree):
     r = frames_frame["r"]
     p = frames_frame["p"]
     chi2 = frames_frame["chi2"]
+    length = frames_frame["nhit"]
    # mc_eventId = frames_frame["mc_eventId"] 
     mc_prime = frames_frame["mc_prime"]
     mc = frames_frame["mc"]
@@ -50,7 +51,8 @@ def FrameTracks(frame_number, frames_tree):
             'z0': z0[i],  
             'r': r[i],  
             'p': p[i],  
-            'chi2': chi2[i],  
+            'chi2': chi2[i], 
+            'length': length[i], 
             #'mc_eventId': mc_eventId[i],
             'mc_prime' : mc_prime[i],
             'mc measure' :mc[i],
@@ -73,18 +75,18 @@ def FrameTracks(frame_number, frames_tree):
 
 
 # Create directory for file saving
-directory = "/root/Mu3eProject/RawData/TrirecFiles/signal1_99_32652"
+directory = "/root/Mu3eProject/RawData/TrirecFiles/signal1_98_32652"
 if not os.path.exists(directory):
     os.makedirs(directory)
 
-file_name = "trirec_data_signal1_99_32652_frames.csv"
+file_name = "trirec_data_signal1_98_32652_frames.csv"
 file_path = os.path.join(directory, file_name)
 
 if os.path.exists(file_path):  # Deletes old version of file if present
     os.remove(file_path)
 
 # Load the ROOT file and extract the frames tree
-root_file_path = "/root/Mu3eProject/RawData/TrirecFiles/signal1_99_32652_execution_1_run_num_561343_trirec.root"
+root_file_path = "/root/Mu3eProject/RawData/TrirecFiles/RawFiles/signal1_98_32652_execution_1_run_num_135993_trirec.root"
 print("Processing file:", root_file_path)
 
 trirec_file = uproot.open(root_file_path)  # Open the ROOT file
