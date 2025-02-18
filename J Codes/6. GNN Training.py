@@ -5,10 +5,11 @@ import awkward as ak
 import awkward0
 from matplotlib import pyplot as plt
 from sklearn.preprocessing import StandardScaler
-from tensorflow.python import keras
+from tensorflow import keras
+from tensorflow.keras.layers import BatchNormalization
 import os
 
-print(tf.__version__)
+print("Tensorflow Version:", tf.__version__)
 print(dir(tf.keras))
 print(hasattr(tf.keras, "layers"))  # Should return True
 
