@@ -309,7 +309,7 @@ def EfficiencyLambdaMomentumPlot(data_file, min_lam, max_lam, lam_res, min_p, ma
     return
 
 #Fake rate measures
-def TotalFakeRateMeasure(data_file, fake_measure, hit_count):
+def TotalFakeRateMeasure(data_file, fake_measure, num_hits):
     """Calculates the total fake rate for a data file, accounting for all momenta, angles, and track lengths. Can be done based on 2 definitions of fake rate 
     'harsh': Any track where not 1 'abs_true_track'
     'lenient': Any track where both mc_prime and mc measure are 0.
@@ -323,8 +323,30 @@ def TotalFakeRateMeasure(data_file, fake_measure, hit_count):
     Output:
     - Overall fake rate percentage for track
     """
+    assert fake_measure in ['harsh', 'lenient'], "fake_measure must be 'harsh' or 'lenient'"
+    data_file = data_file.copy()
+    data_file['abs_true_track'] = ((data_file['mc_prime'] == 1) & (data_file['mc measure'] == 1)).astype(int)
+    data_file = data_file[data_file['num_hits'] >= num_hits]  # Allows control here of if want to do for just longer tracks. Leave at 4 for no change
+    data_file = data_file.dropna(subset=['mc_tid']) # Drop all non-reconstructed particles, keep only 'reconstructed' tracks
 
-def FakeRateTrackLengthPlot(data_file, fake_measure):
+    if fake_measure == 'harsh':
+        total_tracks = len(data_file) # Use length as there are duplicates of tid for duplicate tracks, want to include them all
+        num_fake_tracks = (data_file['abs_true_track'] ==0).sum()
+        print(f"total tracks: {total_tracks}")
+        print(f"number of fake tracks:{num_fake_tracks}")
+
+    elif fake_measure == 'lenient':
+        total_tracks = len(data_file) #see above
+        num_fake_tracks = ((data_file['mc_prime'] == 0) & (data_file['mc measure'] == 0)).sum()
+        print(f"total tracks: {total_tracks}")
+        print(f"number of fake tracks:{num_fake_tracks}")
+
+    total_fake_rate = num_fake_tracks/total_tracks
+    print(f"Overall {fake_measure} fake rate: {total_fake_rate}")
+
+    return
+
+def FakeRateTrackLengthPlot(data_file, fake_measure, num_hits):
     """Function to plot the fake rate of the track finding as a function of the reconstructed track length. Can be done for different fake rate definitions.
     'harsh': Any track where not 1 'abs_true_track'
     'lenient': Any track where both mc_prime and mc measure are 0.
@@ -338,6 +360,47 @@ def FakeRateTrackLengthPlot(data_file, fake_measure):
     Output:
     - Overall efficiency measure
     """
+    assert fake_measure in ['harsh', 'lenient'], "fake_measure must be 'harsh' or 'lenient'"
+    data_file = data_file.copy()
+    data_file['abs_true_track'] = ((data_file['mc_prime'] == 1) & (data_file['mc measure'] == 1)).astype(int)
+    data_file = data_file[data_file['num_hits'] >= num_hits]  # Allows control here of if want to do for just longer tracks. Leave at 4 for no change
+    data_file = data_file.dropna(subset=['mc_tid']) # Specific for this function, as only considering reconstructed tracks (remove non-recon ones)
+
+    grouped_data_tracklength = data_file.groupby('length', observed=False)
+    total_tracks_per_length = grouped_data_tracklength['tid'].count() #Again count total, including the duplicates
+
+    if fake_measure == 'harsh':
+        fake_tracks = grouped_data_tracklength['abs_true_track'].agg(lambda x: (x == 0).sum())
+
+    elif fake_measure == 'lenient':
+        fake_tracks = grouped_data_tracklength.apply(lambda x: ((x['mc_prime'] == 0) & (x['mc measure'] == 0)).sum())
+    
+    fake_rate = fake_tracks / total_tracks_per_length
+
+    # Print fake rates per track length
+    print("\nFake Rate per Track Length:")
+    for length, rate in fake_rate.items():
+        print(f"Track Length {length}: Fake Rate = {rate:.4f}")
+
+    # Plot bar chart
+    plt.figure(figsize=(8, 5))
+    bars = plt.bar(fake_rate.index, fake_rate.values, color='red', edgecolor = 'black', alpha=0.8)
+
+    # Add text labels above bars
+    for bar in bars:
+        yval = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2, yval, f"{yval:.3f}", ha='center', va='bottom', fontsize=12, fontweight='bold')
+
+    # Labels and title
+    plt.xlabel("Track Length", fontsize=14)
+    plt.ylabel("Fake Rate", fontsize=14)
+    plt.title(f"Fake Rate vs Track Length ({fake_measure.capitalize()})", fontsize=16)
+    plt.xticks(fake_rate.index)  # Ensure track lengths are used as x-ticks
+    plt.ylim(0, max(fake_rate.values) * 1.2)  # Add some space above the highest bar
+
+    plt.show()
+
+    return fake_rate  # Returning it in case you want to use it later
 
 def FakeRateLambdaMomentumPlot(data_file, min_lam, max_lam, lam_res, min_p, max_p, p_res, p_type, num_hits, fake_measure):
     """Function that produces a plot of the fake rate (no. fake tracks/total reconstructed) in the data as a function of total momentum
@@ -354,6 +417,7 @@ def FakeRateLambdaMomentumPlot(data_file, min_lam, max_lam, lam_res, min_p, max_
     Output:
     - Colourmap of fake rate as function of truth momentum and lambda of the particle IDs
     """
+    assert fake_measure in ['harsh', 'lenient'], "fake_measure must be 'harsh' or 'lenient'"
 
     data_file = data_file.copy()
     data_file['abs_true_track'] = ((data_file['mc_prime'] == 1) & (data_file['mc measure'] == 1)).astype(int)
@@ -431,10 +495,6 @@ def FakeRateLambdaMomentumPlot(data_file, min_lam, max_lam, lam_res, min_p, max_
 
     plt.show()
     return
-
-
-
-
 
 #Other measures
 def TrackFrequencyLambdaMomentumPlot(data_file, min_lam, max_lam, lam_res, min_p, max_p, p_res, p_type, num_hits, truth_measure):
@@ -602,10 +662,6 @@ def RatioLongToShortTracks (data_file, min_lam, max_lam, lam_res, min_p, max_p, 
     return
 
 
-
- 
-
-
 # Define the files for building your data, build dataset
 sort_file = "/root/Mu3eProject/WorkingVersion/Mu3eProject/DataFilesV5.3/signal1_98_32652/hits_data_signal1_98_32652_with_mcinfo_tid_sorted.csv"
 sort_mc_file = "/root/Mu3eProject/WorkingVersion/Mu3eProject/DataFilesV5.3/signal1_98_32652/traj_truth_signal1_98_32652.csv"
@@ -619,7 +675,7 @@ df_comparison = pd.read_csv(comparison_file)
 
 
 # EfficiencyTrackLengthPlot(df_comparison, truth_measure='absolute')
-# TotalEfficiencyMeasure(df_comparison, truth_measure = 'absolute', hit_count = 4)
+#TotalEfficiencyMeasure(df_comparison, truth_measure = 'absolute', hit_count = 4)
 # EfficiencyMomentumPlot(df_comparison, min_momentum = 0, max_momentum = 100, momentum_res = 10, p_type = 'traj_p')
 
 # EfficiencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits = 4, truth_measure = 'absolute')
@@ -627,9 +683,11 @@ df_comparison = pd.read_csv(comparison_file)
 
 # RatioLongToShortTracks(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits = 4)
 
-#TrackFrequencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 2, p_type = 'traj_p', num_hits = 4, truth_measure = 'absolute')
+# TrackFrequencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 2, p_type = 'traj_p', num_hits = 4, truth_measure = 'absolute')
 
-FakeRateLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 2, p_type = 'traj_p', num_hits = 4, fake_measure = 'lenient') #Harsh = non absolute true = fake, lenient = mc_prime:0 AND mc measure:0
+# FakeRateLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 2, p_type = 'traj_p', num_hits = 4, fake_measure = 'lenient') #Harsh = non absolute true = fake, lenient = mc_prime:0 AND mc measure:0
 
+#TotalFakeRateMeasure(df_comparison, fake_measure = 'lenient', num_hits = 4 )
 
+FakeRateTrackLengthPlot(df_comparison, fake_measure = 'lenient', num_hits = 4)
 
