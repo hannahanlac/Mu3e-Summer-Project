@@ -2,6 +2,7 @@ import uproot
 import awkward as ak
 import pandas as pd 
 import os
+import numpy as np
 
 class Hit(object):
     """Decodes a 32 bit hit ID (as found in the 'hit_pixelid' branch) into its constituent parts"""
@@ -40,6 +41,27 @@ class Hit(object):
             return zt - 6;
         else: return zt;
 
+def GlobalCalculator(v,drow,dcol, row_number, column_number):
+    """Function that makes the final 3d coordinates of a hit from the """
+
+    hit_global_coordinates = v + drow * (0.5 + row_number) + dcol * (0.5 + column_number)
+    return hit_global_coordinates
+
+def preprocess_chip_id_mapping(sensor_tree):
+    """Precompute sensor data (v, drow, dcol) and store in a dictionary for fast lookup."""
+    id_branch = sensor_tree["sensor"].array()
+    branches = ["vx", "vy", "vz", "rowx", "rowy", "rowz", "colx", "coly", "colz"] # Branches that we need
+    arrays = sensor_tree.arrays(branches)
+
+    sensor_data_dict = {}
+    for idx, chip_id in enumerate(id_branch): #Way of linking the chip id to the index in the sensor branch, 
+        v = np.array([arrays["vx"][idx], arrays["vy"][idx], arrays["vz"][idx]])
+        drow = np.array([arrays["rowx"][idx], arrays["rowy"][idx], arrays["rowz"][idx]])
+        dcol = np.array([arrays["colx"][idx], arrays["coly"][idx], arrays["colz"][idx]])
+
+        sensor_data_dict[chip_id] = (v, drow, dcol)  # Store sensor data
+    return sensor_data_dict
+
 def HitsInFrame(frame_number, mu3eTrame):
     """ Takes the input root file, and the frame number, and outputs an array of the hit information for that frame
     Inputs: mu3eTree: An array of all frames and the pixelIDs, frame number
@@ -52,6 +74,15 @@ def HitsInFrame(frame_number, mu3eTrame):
         # Loop for iterating through frame hits
         for hitIndex, time, mcIndex , mcNumber in zip(hitsInFrame, timestamps, mc_indexes, mc_numbers):
             hit = Hit(hitIndex)
+            sensor_id = hit.chipid()
+            row = hit.row()
+            column = hit.column()
+
+            # Lookup precomputed sensor data 
+            sensor_info = sensor_data_dict.get(sensor_id)
+            v, drow, dcol = sensor_info 
+            hit_global_coords = v + drow * (0.5 + row) + dcol * (0.5 + column)
+            
             mc_hit_info = mchits_data.get(mcIndex, {"tid", "hid", "hid_g"}) #Extract rel mc info based on index
             frame_hits.append({ 
                 'frame': frame_number,           # Append a dictionary with the hit information
@@ -66,6 +97,9 @@ def HitsInFrame(frame_number, mu3eTrame):
                 'tid': mc_hit_info["tid"],
                 'hid': mc_hit_info["hid"],
                 'hid_g': mc_hit_info["hid_g"],
+                'gx': hit_global_coords[0],
+                'gy': hit_global_coords[1],
+                'gz': hit_global_coords[2],
                 })
         break
     return frame_hits # Return awkward array with the frame hits data
@@ -91,6 +125,14 @@ print()
 signal_file = uproot.open(file_path) # Opens the file
 mu3eTree = signal_file['mu3e'].arrays() # Saves just the Mu3eTree that we need
 
+#Open the sensors tree, open the id branch, create the lookup dictionary mapping sensor_ids to indexes (Needed for global coordinates)
+sensor_tree = signal_file["alignment/sensors;1"] 
+id_branch = sensor_tree["sensor"].array()  
+sensor_id_to_index = preprocess_chip_id_mapping(sensor_tree) 
+
+#Make the lookup dict linking sensor chip id to correct v,drow,dcol info.
+sensor_data_dict = preprocess_chip_id_mapping(signal_file["alignment/sensors;1"])
+
 #Open the mchits tree, make a lookup dict preserving index no.
 mchits = signal_file["mu3e_mchits"].arrays(["tid", "hid", "hid_g"])
 print("Building mchits dictionary")
@@ -109,6 +151,9 @@ for frame_number in frame_numbers:
     #progress indicator for script - indicates run progress and how much left (compare w/ total frame number print just beforehand)
     frame_hits = HitsInFrame(frame_number, mu3eTree)
     all_hits.extend(frame_hits)
+
+# Sort hits by frame number and then by tid within each frame
+all_hits.sort(key=lambda x: (x['frame'], x['tid'],x['hid']))
 
 # Converting array to Panda, and then saving as CSV 
 all_frames_data = pd.DataFrame(all_hits)

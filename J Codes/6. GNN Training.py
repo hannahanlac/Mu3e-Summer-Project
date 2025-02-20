@@ -20,9 +20,6 @@ logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(m
 
 
 # ### Adjust train_dataset
-
-# In[7]:
-
 class Dataset(object):
     
     """Dataset class to load and preprocess data from a Parquet file.
@@ -60,7 +57,6 @@ class Dataset(object):
         #Sets the axis for stacking features: 1 -> Features will be stacked along channels (channel_first).
         #-1 -> Features will be stacked along last dimension (channel_last).
         self._values = {}
-        self._label = None
 
         self._load()
 
@@ -195,8 +191,6 @@ class Dataset(object):
 
 
 
-
-# In[2]:
 
 def Batching(frames, hits_dict, labels_dict, frames_per_batch):
     """
@@ -334,9 +328,6 @@ def knn(num_points, k, topk_indices, features):
 
 # ### Edge Convulution operation
 # Attention: use (1,1) kernel Conv2D to perform MLP
-
-# In[3]:
-
 #main message passing operation of GNN can make major theory tweaks here
 def edge_conv(points, features, num_points, K, channels, with_bn=True, activation='relu', name='edgeconv'):
     """Modified EdgeConv for Edge Classification
@@ -421,9 +412,6 @@ def edge_conv(points, features, num_points, K, channels, with_bn=True, activatio
 
 
 
-# In[4]:
-
-
 def get_edgeconv(input_shapes):
     """
     input_shapes : dict
@@ -443,20 +431,19 @@ def get_edgeconv(input_shapes):
 
     edge_logits = edge_conv(points, features, num_points, K, channels, name='edgeconv')
 
-
     # New Model: Outputs edge classification logits directly
-    GCNN_model = keras.Model(inputs=[points, features, mask], outputs=edge_logits, name='EdgeClassifierGCNN')
+    GCNN_model = keras.Model(
+        inputs=[points, features, mask], 
+        outputs=[edge_logits, points], 
+        name='EdgeClassifierGCNN'
+        )
 
     return GCNN_model
 
 
 
-
-
 # ### Load Dataset
 # Change path to your train_dataset ( train + validation )
-
-# In[ ]:
 
 train_dataset = Dataset('ProcessedData/signal1_96_32652/train_data/train_data.parquet', data_format='channel_last')
 
@@ -464,9 +451,6 @@ train_dataset = Dataset('ProcessedData/signal1_96_32652/train_data/train_data.pa
 for key in train_dataset.X.keys():
     print(f"First 5 samples from {key}:")
     print(train_dataset.X[key][:5])  # Print first 5 entries"""
-
-
-# In[ ]:
 
 
 GCNN_model_name = 'GCNN_model_test'        #set your GCNN_model (file) name
@@ -481,9 +465,6 @@ GCNN_model = get_edgeconv(input_shapes)
 # Also set up your <b>batch size</b> here.
 # 
 # If you want to use <b>learning rate decay</b> strategy, don't forget to enter your number of training epochs and validation split ratio here.
-
-# In[ ]:
-
 
 num_epochs = 10
 batch_size = 64
@@ -520,16 +501,11 @@ def lr_schedule(initial_learning_rate,end_learning_rate):
 
 # ### Set up optimizer and Learning rate here
 
-# In[ ]:
-
-
 GCNN_model.compile(loss='binary_crossentropy',
               optimizer=keras.optimizers.Adam(learning_rate=lr_schedule(0.01,0.001)),    #you can change optimizer and lr here
               metrics=['accuracy'])
 GCNN_model.summary()
 
-
-# In[12]:
 
 
 checkpoint = keras.callbacks.ModelCheckpoint(filepath=f'ProcessedData/model_record/{GCNN_model_name}',           #filepath
@@ -542,16 +518,11 @@ callbacks = [checkpoint, progress_bar]
 
 # ### Shuffle training train_dataset
 
-# In[13]:
-
-
 train_dataset.shuffle()
 
 
 # ### Train the GCNN_model
 # Set <b>number of training epochs</b> and set <b>ratio</b> to split Dataset for training set and testing set. Start training.
-
-# In[ ]:
 
 # Train model
 history = GCNN_model.fit(train_dataset.X, train_dataset.y,
@@ -567,9 +538,6 @@ GCNN_model.save(f"GCNN_model_record/{GCNN_model_name}")
 # ### Prediction
 # Set <b>testing train_dataset file path</b> here. Also we will save prediction scores which use to make plot.
 
-# In[ ]:
-
-
 import pickle
 
 # Save training metrics
@@ -579,15 +547,9 @@ with open(f"GCNN_model_record/{GCNN_model_name}/GCNN_model_metrics.pickle", 'wb'
 print(f"metrics saved: {GCNN_model_name}")
 
 
-# In[ ]:
-
-
 # Predict on test dataset
 # Change path to testing dataset here
 test_dataset = Dataset('ProcessedData/signal1_96_32652/test_data/test_data.parquet', data_format='channel_last')
-
-
-# In[24]:
 
 
 # Save to numpy files to use in make_plots2.py
@@ -597,6 +559,4 @@ np.save('inputs/test_labels.npy', test_dataset.y)
 
 
 # ### Simply visualize result
-
 plt.hist(scores)
-# %%
