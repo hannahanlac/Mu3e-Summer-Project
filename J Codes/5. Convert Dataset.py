@@ -24,6 +24,9 @@ def Dataset(signal_dir):
         'ladder_array' : dataframe['ladder'].to_numpy(),
         'chip_array' : dataframe['chip'].to_numpy(),
         'tid_array' : dataframe['tid'].to_numpy(),
+        'gx' : dataframe['gx'].to_numpy(),
+        'gy' : dataframe['gy'].to_numpy(),
+        'gz' : dataframe['gz'].to_numpy()
     })
     
     #sort hit arrays by frame 
@@ -161,7 +164,10 @@ def MakeDataset():
         "station_array": 0,
         "ladder_array": 0,
         "chip_array": 0,
-        "tid_array": 0
+        "tid_array": 0,
+        "gx" : 0,
+        "gy" : 0,
+        "gz" : 0
     }
     #Dictionary of padding values for each parameter
     #can change these padding values for physical/practical reasons as wish

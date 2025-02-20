@@ -47,7 +47,7 @@ class Dataset(object):
         if not self.feature_dict:
             #If feature_dict is empty (which it should be), we initialize default feature groups.
             #This syntax checks whether empty directly instead of counting as ==0 method did before
-            self.feature_dict['points'] = ['pixelx_array', 'pixely_array', 'layer_array', 'station_array', 'ladder_array', 'chip_array']
+            self.feature_dict['points'] = ['gx', 'gy', 'gz']
             self.feature_dict['features'] = ['pixelx_array', 'pixely_array', 'layer_array', 'station_array', 'ladder_array', 'chip_array']
             self.feature_dict['mask'] = ['layer_array']
             #"pixelx_array": b,"pixely_array": c,"layer_array"
