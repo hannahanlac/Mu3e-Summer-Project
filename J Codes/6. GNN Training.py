@@ -48,7 +48,7 @@ class Dataset(object):
             #If feature_dict is empty (which it should be), we initialize default feature groups.
             #This syntax checks whether empty directly instead of counting as ==0 method did before
             self.feature_dict['points'] = ['gx', 'gy', 'gz']
-            self.feature_dict['features'] = ['pixelx_array', 'pixely_array', 'layer_array', 'station_array', 'ladder_array', 'chip_array']
+            self.feature_dict['features'] = ['pixelx_array', 'pixely_array', 'layer_array', 'station_array', 'ladder_array', 'chip_array', 'gx', 'gy', 'gz']
             self.feature_dict['mask'] = ['layer_array']
             #"pixelx_array": b,"pixely_array": c,"layer_array"
 
@@ -187,7 +187,6 @@ class Dataset(object):
     #Randomly shuffles the dataset.
     #Uses consistent shuffling for features and labels.
     #Need to ensure no index mixxing happening here
-
 
 
 
@@ -424,7 +423,7 @@ def get_edgeconv(input_shapes):
 
     num_points = tf.shape(points)[0]  # Dynamically get number of nodes in batch (num_points = batch size)
 
-    points = tf.reshape(points, (-1, num_points, 6))  # Ensure correct format (batch_size, num_points, 6)
+    points = tf.reshape(points, (-1, num_points, 3))  # Ensure correct format (batch_size, num_points, 6)
     features = tf.reshape(features, (-1, num_points, 6))  # Ensure batch size is included (batch_size, num_points, 6/C_f)
     K = 10  # Set a default value
     channels = [64, 128, 256]  # Define layer sizes
@@ -434,7 +433,7 @@ def get_edgeconv(input_shapes):
     # New Model: Outputs edge classification logits directly
     GCNN_model = keras.Model(
         inputs=[points, features, mask], 
-        outputs=[edge_logits, points], 
+        outputs=[edge_logits], 
         name='EdgeClassifierGCNN'
         )
 
@@ -442,15 +441,15 @@ def get_edgeconv(input_shapes):
 
 
 
-# ### Load Dataset
+### Load Dataset
 # Change path to your train_dataset ( train + validation )
 
 train_dataset = Dataset('ProcessedData/signal1_96_32652/train_data/train_data.parquet', data_format='channel_last')
 
-"""print("Feature keys:", train_dataset.X.keys())  # Check feature names
+print("Feature keys:", train_dataset.X.keys())  # Check feature names
 for key in train_dataset.X.keys():
     print(f"First 5 samples from {key}:")
-    print(train_dataset.X[key][:5])  # Print first 5 entries"""
+    print(train_dataset.X[key][:5])  # Print first 5 entries
 
 
 GCNN_model_name = 'GCNN_model_test'        #set your GCNN_model (file) name
