@@ -678,8 +678,8 @@ df_comparison = pd.read_csv(comparison_file)
 #TotalEfficiencyMeasure(df_comparison, truth_measure = 'absolute', hit_count = 4)
 # EfficiencyMomentumPlot(df_comparison, min_momentum = 0, max_momentum = 100, momentum_res = 10, p_type = 'traj_p')
 
-# EfficiencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits = 4, truth_measure = 'absolute')
-# EfficiencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits = 4, truth_measure = 'all')
+#EfficiencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits = 4, truth_measure = 'absolute')
+EfficiencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_p', num_hits = 4, truth_measure = 'all')
 
 # RatioLongToShortTracks(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits = 4)
 
@@ -689,5 +689,5 @@ df_comparison = pd.read_csv(comparison_file)
 
 #TotalFakeRateMeasure(df_comparison, fake_measure = 'lenient', num_hits = 4 )
 
-FakeRateTrackLengthPlot(df_comparison, fake_measure = 'lenient', num_hits = 4)
+#FakeRateTrackLengthPlot(df_comparison, fake_measure = 'lenient', num_hits = 4)
 

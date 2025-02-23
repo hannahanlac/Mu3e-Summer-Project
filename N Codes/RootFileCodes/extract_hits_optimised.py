@@ -64,7 +64,6 @@ def preprocess_chip_id_mapping(sensor_tree):
     return sensor_data_dict
 
 
-
 def HitsInFrame(frame_number, mu3eTrame):
     """ Takes the input root file, and the frame number, and outputs an array of the hit information for that frame
     Inputs: mu3eTree: An array of all frames and the pixelIDs, frame number
@@ -114,10 +113,10 @@ def HitsInFrame(frame_number, mu3eTrame):
 #######################################################################################################
 
 # Create directory for file saving
-directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/DataFilesV5.3/signal1_98_32652" #NOTE: currently this needs to be changed each time
+directory = "/root/Mu3eProject/RawData/TransformerData/signal1_98" #NOTE: currently this needs to be changed each time
 if not os.path.exists(directory):
     os.makedirs(directory)
-file_name = "hits_data_signal1_98_32652_with_mcinfo_global_testing_2.csv"
+file_name = "hits_data_signal1_98_32652_with_global.csv"
 if os.path.exists(file_name): # Deletes old version of file if present
     os.remove(file_name)
 
