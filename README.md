@@ -7,4 +7,4 @@ Dear future project students, welcome to the code base for ML for Mu3e.
 If you are a proficient python coder already: I sincerely apologise for what you are going to witness here.
 
 
-If you are a mediocre python coder at best: you're welcome
+If you are a mediocre python coder at best: you're welcome.
