@@ -663,15 +663,15 @@ def RatioLongToShortTracks (data_file, min_lam, max_lam, lam_res, min_p, max_p, 
 
 
 # Define the files for building your data, build dataset
-sort_file = "/root/Mu3eProject/WorkingVersion/Mu3eProject/DataFilesV5.3/signal1_98_32652/hits_data_signal1_98_32652_with_mcinfo_tid_sorted.csv"
-sort_mc_file = "/root/Mu3eProject/WorkingVersion/Mu3eProject/DataFilesV5.3/signal1_98_32652/traj_truth_signal1_98_32652.csv"
-trirec_file = "/root/Mu3eProject/RawData/TrirecFiles/signal1_98_32652/trirec_data_signal1_98_32652_frames.csv"
-#BuildComparisonData(sort_file, sort_mc_file, trirec_file, signal_no = 'signal1_98')
+hits_data = "/root/Mu3eProject/RawData/TransformerData/signal1_95/signal1_95_hits_data.csv"
+truth_data = "/root/Mu3eProject/RawData/TransformerData/signal1_95/signal1_95_truth_data.csv"
+trirec_file = "/root/Mu3eProject/RawData/TrirecFiles/signal1_95_32652/trirec_data_signal1_95_32652_frames.csv"
+BuildComparisonData(hits_data, truth_data, trirec_file, signal_no = 'signal1_95')
 
 
 #Test efficiency
-comparison_file = "/root/Mu3eProject/RawData/ComparisonData/comparison_data_signal1_98.csv"
-df_comparison = pd.read_csv(comparison_file)
+# comparison_file = "/root/Mu3eProject/RawData/ComparisonData/comparison_data_signal1_98.csv"
+# df_comparison = pd.read_csv(comparison_file)
 
 
 # EfficiencyTrackLengthPlot(df_comparison, truth_measure='absolute')
@@ -679,7 +679,7 @@ df_comparison = pd.read_csv(comparison_file)
 # EfficiencyMomentumPlot(df_comparison, min_momentum = 0, max_momentum = 100, momentum_res = 10, p_type = 'traj_p')
 
 #EfficiencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits = 4, truth_measure = 'absolute')
-EfficiencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_p', num_hits = 4, truth_measure = 'all')
+#EfficiencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_p', num_hits = 4, truth_measure = 'all')
 
 # RatioLongToShortTracks(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits = 4)
 

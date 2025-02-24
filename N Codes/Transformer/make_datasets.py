@@ -3,6 +3,9 @@ import pandas as pd
 import numpy as np
 import awkward as ak
 import os
+import torch
+from torch.utils.data import Dataset, DataLoader
+import random
 
 ###### Use this code to create the data sets for the transformer model. Saves all the files into a data_training folder.
 # Make this code just by editing the extract_hits optimised
@@ -268,21 +271,72 @@ def IndexedData (hits_truth_merge, momentum_bins, lambda_bins, phi_bins, q_mappi
     Output:
     Hits data with index"""
 
-        # Create bin indexes
+    # Create bin indexes
     hits_truth_merge['p_bin'] = np.digitize(hits_truth_merge['traj_p'], bins=momentum_bins, right=False) - 1
     hits_truth_merge['lambda_bin'] = np.digitize(hits_truth_merge['traj_lambda'], bins=lambda_bins, right=False) - 1
     hits_truth_merge['phi_bin'] = np.digitize(hits_truth_merge['traj_phi'], bins=phi_bins, right=False) - 1
-    hits_truth_merge['type_bin'] = hits_truth_merge['traj_type'].map(q_mapping)  # Convert type into bin indexes
+    hits_truth_merge['type_bin'] = hits_truth_merge['traj_type'].map(q_mapping) 
 
-    # Assign a unique bin index for classification
-    hits_truth_merge['bin_index'] = (hits_truth_merge['p_bin'] * (30 * 30 * 2) +  # 30 lambda bins, 30 phi bins, 2 type bins
-                       hits_truth_merge['lambda_bin'] * (30 * 2) +
+    # Assign unique bin index for classification. Idea here is defining on each bin type by keeping in blocks of numbers
+    hits_truth_merge['bin_index'] = (hits_truth_merge['p_bin'] * (num_lam_bins * num_phi_bins * 2) +  # 30 lambda bins, 30 phi bins, 2 type bins
+                       hits_truth_merge['lambda_bin'] * (num_phi_bins * 2) +
                        hits_truth_merge['phi_bin'] * 2 +
-                       hits_truth_merge['type_bin'])
+                       hits_truth_merge['type_bin']) 
 
     file_path = f"/root/Mu3eProject/RawData/TransformerData/{signal_no}/{signal_no}_hits_truth_indexed.csv"
     hits_truth_merge.to_csv(file_path, index=False)
-    return hits_truth_merge
+
+    hits_truth_filtered = hits_truth_merge[["frameNumber","tid","gx","gy","gz","bin_index"]]
+    file_path = f"/root/Mu3eProject/RawData/TransformerData/{signal_no}/{signal_no}_hits_truth_indexed_filtered.csv"
+    hits_truth_filtered.to_csv(file_path, index=False)
+    return hits_truth_filtered
+
+
+
+class FrameDataset(Dataset):
+    def __init__(self, csv_file):
+        # Load your CSV data
+        self.df = pd.read_csv(csv_file)
+        # Group by the frameNumber column
+        self.grouped = self.df.groupby("frameNumber")
+        # Get a sorted list of frame numbers
+        self.frames = sorted(self.grouped.groups.keys())
+    
+    def __len__(self):
+        return len(self.frames)
+    
+    def __getitem__(self, idx):
+        frame_num = self.frames[idx]
+        # Get all rows for this frame
+        frame_data = self.grouped.get_group(frame_num)
+        # Extract features (gx, gy, gz)
+        features = torch.tensor(frame_data[['gx','gy','gz']].values, dtype=torch.float32)
+        # Extract labels (bin_index)
+        labels = torch.tensor(frame_data['bin_index'].values, dtype=torch.long)
+        return features, labels
+    
+    
+def DataToTorch(hits_truth_filtered,training_data_directory,signal_no):
+    """Function for taking the filtered, indexed hits and truth data, and turning it into data files suitable for loading into the transformer
+    Input:
+    -hits_truth_filtered: Panda DF of frames, hits data 3d coordinates indexed track classification
+    Output:
+    -.pt model training files"""
+
+    dataset = FrameDataset(hits_truth_filtered)
+
+    # Extract features, labels, and frame numbers
+    features_list, labels_list = [], []
+
+    for i in range(len(dataset)):
+        features, labels = dataset[i]
+        features_list.append(features)
+        labels_list.append(labels)
+
+
+    # Save as .pt file
+    torch.save((features_list, labels_list), os.path.join(training_data_directory, "sorted_train.pt"))
+
 
 
 ##### Define the bins for indexing NOTE: Ideally this will be turned into a TOML self contained dict or something...
@@ -305,15 +359,15 @@ phi_bins = np.linspace(phi_min,phi_max,num_phi_bins+1)
 q_mapping = {11: 0, 91: 0 ,52: 1, 92: 1}  #Mapping to charges for: positrons, electrons (from michel, bhabha, signal)
                                           #Positrons -> 0, Electrons ->1
 
-total_bins = num_lam_bins * num_lam_bins*num_phi_bins * 2
+total_bins = num_p_bins * num_lam_bins *num_phi_bins * 2
 print(f"Total number of bins: {total_bins}")
 
 ############################################################################################################
 
 # Open file for conversion
-sort_file = "/root/Mu3eProject/RawData/v5.3/signal1_98_32652_execution_1_run_num_135993_sort.root"
+sort_file = "/root/Mu3eProject/RawData/SortDataFilesV5.3/signal1_96_32652_execution_1_run_num_789062_sort.root"
 signal_file = uproot.open(sort_file) # Opens the file
-signal_no = "signal1_98"
+signal_no = "signal1_96"
 
 # Create directory for file saving
 directory = f"/root/Mu3eProject/RawData/TransformerData/{signal_no}" #NOTE: currently this needs to be changed each time
@@ -321,16 +375,57 @@ if not os.path.exists(directory):
     os.makedirs(directory)
 
 ############################################################################################################
-print("Compiling hits data:")
-print()
-hit_data = CompileHits(signal_file, signal_no)
-print("Hits data saved.")
-print("Compiling truth data:")
-truth_data = CompileTruth(signal_file, signal_no)
+# print("Compiling hits data:")
+# print()
+# hit_data = CompileHits(signal_file, signal_no)
+# print("Hits data saved.")
+# print("Compiling truth data:")
+# truth_data = CompileTruth(signal_file, signal_no)
 
-print("Merging data:")
-hits_truth_merge = LinkHitsTruthData(hit_data,truth_data, signal_no = signal_no)
-print("Data merged, beginning indexing:")
+# print("Merging data:")
+# hits_truth_merge = LinkHitsTruthData(hit_data,truth_data, signal_no = signal_no)
+# print("Data merged, beginning indexing:")
 
-IndexedData(hits_truth_merge,p_bins,lam_bins,phi_bins,q_mapping, signal_no = signal_no)
-print("Data indexed")
+# IndexedData(hits_truth_merge,p_bins,lam_bins,phi_bins,q_mapping, signal_no = signal_no)
+# print("Data indexed")
+
+############## Testing turning into pytorch form: ########################
+indexed_test_file = "/root/Mu3eProject/RawData/TransformerData/signal1_96/signal1_96_hits_truth_indexed_filtered.csv"
+# Example usage:
+
+training_data_directory = "/root/Mu3eProject/RawData/TransformerData/TrainingData"
+if not os.path.exists(training_data_directory):
+    os.makedirs(training_data_directory)
+
+
+DataToTorch(indexed_test_file,training_data_directory, signal_no)
+
+
+# Load the .pt file
+data = torch.load("/root/Mu3eProject/RawData/TransformerData/TrainingData/sorted_train.pt")
+
+# Check the type of data stored
+print(type(data))
+
+# Check the length of the tuple
+print(f"Tuple length: {len(data)}")
+
+# Inspect the first few elements
+for i, item in enumerate(data):
+    print(f"Element {i}: Type: {type(item)}")
+
+    # If it's a tensor, show its shape
+    if isinstance(item, torch.Tensor):
+        print(f"  Shape: {item.shape}")
+        print(f"  First few values: {item[:5]}")
+    
+    # If it's a list or dict, show some details
+    elif isinstance(item, list):
+        print(f"  List length: {len(item)}")
+        print(f"  First item: {item[0]}")
+    elif isinstance(item, dict):
+        print(f"  Dictionary keys: {item.keys()}")
+    
+    # Only print details for the first few items to avoid too much output
+    if i >= 2:
+        break
