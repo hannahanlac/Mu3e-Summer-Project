@@ -17,6 +17,7 @@ def Dataset(signal_dir):
     #and convert to awkward array
     signal_arrays = ak.Array({
         'frame_array': dataframe['frame'].to_numpy(),
+        'hit_ID' : dataframe['hitIndex'].to_numpy(),
         'pixelx_array' : dataframe['pixelx'].to_numpy(),
         'pixely_array' : dataframe['pixely'].to_numpy(),
         'layer_array' :  dataframe['layer'].to_numpy(),
@@ -158,6 +159,7 @@ def MakeDataset():
 
     padding_values = {
         "frame_array": 0,
+        "hit_ID": 0,
         "pixelx_array": 0,
         "pixely_array": 0,
         "layer_array": 0,
