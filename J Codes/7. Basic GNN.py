@@ -13,6 +13,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import networkx as nx
 from scipy.spatial import cKDTree
+from mpl_toolkits.mplot3d import Axes3D
 
 def load_data(file_path):
     table = pq.read_table(file_path)  # Load Parquet file as an Arrow table
@@ -83,7 +84,7 @@ def build_graph(batch, k_neighbors=5):
     coords = np.column_stack((gx, gy, gz))  # Alternative to vstack.T, shape (N, 3)
 
     # Debugging: Print the shape of the coordinates
-    print(f"Batch size: {len(batch['hit_ID'])}, Coords shape: {coords.shape}")
+    print(f"Batch Number: {batch['frame_array'][0]}/{len(batches)}, Batch size: {len(batch['hit_ID'])}, Coords shape: {coords.shape}")
 
     # Ensure coords has shape (N, 3)
     if coords.shape[1] != 3:
@@ -93,7 +94,14 @@ def build_graph(batch, k_neighbors=5):
 
     # Add nodes
     for i, (x, y, z) in enumerate(coords):
-        G.add_node(i, gx=x, gy=y, gz=z, hit_ID=batch['hit_ID'][i], tid=batch['tid_array'][i])
+        # Ensure all required attributes exist before adding the node
+        if np.isnan(x) or np.isnan(y) or np.isnan(z):
+            continue  # Skip nodes with NaN coordinates
+
+        try:
+            G.add_node(i, gx=x, gy=y, gz=z, hit_ID=batch['hit_ID'][i], tid=batch['tid_array'][i])
+        except KeyError:
+            continue  # Skip nodes missing 'hit_ID' or 'tid_array'
 
     # Find nearest neighbors for each hit
     tree = cKDTree(coords)  # KDTree for fast nearest neighbor search
@@ -114,7 +122,164 @@ batch_graphs = [build_graph(batch) for batch in batches]
 print(f"Generated {len(batch_graphs)} graphs!")  
 print("First batch graph details:", batch_graphs[0])  # Print first graph
 
+def plot_graph3D(G):
+    
+    """Plots a 3D representation of the hit graph.
 
+    Args:
+        G: A NetworkX graph where nodes have 3D positions (gx, gy, gz)."""
+
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Extract node positions
+    pos = {i: (G.nodes[i]['gx'], G.nodes[i]['gy'], G.nodes[i]['gz']) for i in G.nodes}
+
+    # Plot nodes
+    xs, ys, zs = zip(*pos.values())  # Unpack coordinates
+    ax.scatter(xs, ys, zs, c='blue', marker='o', s=10, alpha=0.6, label="Hits")
+
+    # Plot edges
+    for edge in G.edges:
+        x_vals = [pos[edge[0]][0], pos[edge[1]][0]]
+        y_vals = [pos[edge[0]][1], pos[edge[1]][1]]
+        z_vals = [pos[edge[0]][2], pos[edge[1]][2]]
+        ax.plot(x_vals, y_vals, z_vals, c='gray', alpha=0.4)  # Draw edge
+
+    # Labels and styling
+    ax.set_xlabel('gx')
+    ax.set_ylabel('gy')
+    ax.set_zlabel('gz')
+    ax.set_title("Batch 0 3D Hit Graph Visualization")
+
+    plt.legend()
+    plt.show()
+
+plot_graph3D(batch_graphs[0]) # Visualize the first batch's graph
+
+'''
+def extract_edge_features(G):
+    """
+    Extracts edge features directly from networkx graph.
+    
+    Args:
+        G (networkx.Graph): The input graph.
+
+    Returns:
+        edge_features (np.ndarray): Feature matrix (E, 2C + C)
+        edge_labels (np.ndarray): Ground truth labels (E, 1)
+        edge_list (list): List of edges [(u, v), ...]
+    """
+    edge_features = []
+    edge_labels = []
+    edge_list = []
+
+    for u, v in G.edges():
+        for node, attrs in G.nodes(data=True):
+            print(node, attrs)  # Check what attributes are actually present
+
+
+        # Get node features (assuming stored as attributes)
+        source_feats = np.array([G.nodes[u]['gx'], G.nodes[u]['gy'], G.nodes[u]['gz']])
+        target_feats = np.array([G.nodes[v]['gx'], G.nodes[v]['gy'], G.nodes[v]['gz']])
+        
+        # Compute feature difference
+        feature_diff = source_feats - target_feats
+        
+        # Concatenate to form edge feature vector
+        edge_feat = np.concatenate([source_feats, target_feats, feature_diff])  # (2C + C)
+
+        # Get ground truth labels (1 if same track, 0 otherwise)
+        label = 1 if G.nodes[u]['tid'] == G.nodes[v]['tid'] else 0
+        
+        # Store results
+        edge_features.append(edge_feat)
+        edge_labels.append(label)
+        edge_list.append((u, v))
+
+    return np.array(edge_features), np.array(edge_labels).reshape(-1, 1), edge_list
+
+def edge_classifier(edge_features, channels=(32, 64), with_bn=True, activation='relu', name='edge_classifier'):
+    """
+    MLP-based edge classifier for edge features.
+
+    Args:
+        edge_features: (E, 2C + C) Edge feature matrix
+        channels: Tuple defining the MLP output sizes
+        with_bn: Whether to use batch normalization
+        activation: Activation function
+
+    Returns:
+        edge_logits: (E, 1) - Probability of being same track
+    """
+    inputs = keras.Input(shape=(edge_features.shape[1],))
+    x = inputs
+    
+    for idx, channel in enumerate(channels):
+        x = keras.layers.Dense(channel, activation=None, kernel_initializer='he_normal', name=f"{name}_dense{idx}")(x)
+
+        if with_bn:
+            x = keras.layers.BatchNormalization(name=f"{name}_bn{idx}")(x)
+        
+        x = keras.layers.Activation(activation, name=f"{name}_act{idx}")(x)
+
+    # Final classification layer (probability of being the same track)
+    edge_logits = keras.layers.Dense(1, activation='sigmoid', name=f"{name}_output")(x)
+
+    return keras.Model(inputs, edge_logits)
+
+# Extract edge features from one of our batch graphs
+"""edge_features, edge_labels, edge_list = extract_edge_features(batch_graphs[0])
+
+batch_edge_features = []
+batch_edge_labels = []
+
+for batch_graph in batch_graphs:
+    edge_feats, edge_lbls, _ = extract_edge_features(batch_graph)
+    batch_edge_features.append(edge_feats)
+    batch_edge_labels.append(edge_lbls)
+
+# Define model
+model = edge_classifier(edge_features)
+
+# Compile model
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+# Train model
+model.fit(edge_features, edge_labels, epochs=10, batch_size=64)"""
+
+# Step 1: Define model structure
+edge_feats, _, _ = extract_edge_features(batch_graphs[0])  # Get first batch features
+model = edge_classifier(np.zeros((1, edge_feats.shape[1])))  # Use the correct shape as dummy input to initialize
+
+# Step 2: Compile model
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+# Step 3: Train model iteratively over batches
+num_epochs = 10  # Define number of epochs
+
+for epoch in range(num_epochs):
+    print(f"Epoch {epoch+1}/{num_epochs}")
+
+    for batch_graph in batch_graphs:
+        # Extract edge features & labels for the batch
+        edge_feats, edge_lbls, _ = extract_edge_features(batch_graph)
+
+        # Convert to tensors
+        edge_feats_tensor = tf.convert_to_tensor(edge_feats, dtype=tf.float32)
+        edge_lbls_tensor = tf.convert_to_tensor(edge_lbls, dtype=tf.float32)
+
+        # Train the model on this batch
+        loss, acc = model.train_on_batch(edge_feats_tensor, edge_lbls_tensor)
+        print(f"Batch loss: {loss:.4f}, Batch accuracy: {acc:.4f}")
+
+print("Training complete! Saving model...")
+model.save("trained_gnn_model")
+'''
+
+
+
+#####################################
 """class EdgeClassifier(tf.keras.Model):
     def __init__(self, input_dim, hidden_dim):
         super().__init__()
@@ -213,3 +378,17 @@ plt.ylabel('gy')
 plt.title('Hit Clustering')
 plt.colorbar()
 plt.show()"""
+
+
+################################################
+
+"""def plot_graph2D(G):
+    pos = {i: (G.nodes[i]['gx'], G.nodes[i]['gy']) for i in G.nodes}  # 2D projection
+    plt.figure(figsize=(10, 8))
+    nx.draw(G, pos, node_size=20, edge_color='gray', alpha=0.5)
+    plt.xlabel('gx')
+    plt.ylabel('gy')
+    plt.title('Batch 0 Hit Graph')
+    plt.show()
+
+plot_graph2D(batch_graphs[0])"""
