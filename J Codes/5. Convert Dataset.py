@@ -107,6 +107,12 @@ def Normalization(train_data,test_data):
         if key == 'tid_array':  # Skip normalization for this key
             continue
 
+        if key == 'frame_array':
+            continue
+
+        if key == 'hit_ID':
+            continue
+
         # Reshape to 2D for scaler
         train_array = train_array.reshape(-1, 1)
         train_array = scaler.fit_transform(train_array)
@@ -121,6 +127,12 @@ def Normalization(train_data,test_data):
         #loops through frame_array, pixelx_array etc.
 
         if key == 'tid_array':  # Skip normalization for this key (after convert to numpy so no issues when converting back later)
+            continue
+
+        if key == 'frame_array':
+            continue
+
+        if key == 'hit_ID':
             continue
 
         test_array = test_array.reshape(-1, 1)
