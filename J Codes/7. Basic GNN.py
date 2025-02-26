@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from scipy.spatial import cKDTree
 from mpl_toolkits.mplot3d import Axes3D
+from tqdm import tqdm
 
 def load_data(file_path):
     table = pq.read_table(file_path)  # Load Parquet file as an Arrow table
@@ -185,8 +186,8 @@ def extract_edge_features(G):
     edge_list = []
 
     for u, v in G.edges():
-        for node, attrs in G.nodes(data=True):
-            print(node, attrs)  # Check what attributes are actually present
+        """for node, attrs in G.nodes(data=True):
+            print(node, attrs)"""  # Check what attributes are actually present
 
         if u not in G.nodes or v not in G.nodes:
             print(f"Warning: Edge ({u}, {v}) contains missing nodes")
@@ -284,20 +285,27 @@ model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy']
 # Train model iteratively over batches
 num_epochs = 10  # Define number of epochs
 
-for epoch in range(num_epochs):
-    print(f"Epoch {epoch+1}/{num_epochs}")
+total_steps = num_epochs * len(batch_graphs)  # Total iterations across all epochs
 
-    for batch_graph in batch_graphs:
-        # Extract edge features & labels for the batch
-        edge_feats, edge_lbls, _ = extract_edge_features(batch_graph)
+with tqdm(total=total_steps, desc="Training Progress", unit="batch") as pbar:
+    for epoch in range(num_epochs):
+        print(f"Epoch {epoch+1}/{num_epochs}")
 
-        # Convert to tensors
-        edge_feats_tensor = tf.convert_to_tensor(edge_feats, dtype=tf.float32)
-        edge_lbls_tensor = tf.convert_to_tensor(edge_lbls, dtype=tf.float32)
+        for batch_graph in batch_graphs:
+            # Extract edge features & labels for the batch
+            edge_feats, edge_lbls, _ = extract_edge_features(batch_graph)
 
-        # Train the model on this batch
-        loss, acc = model.train_on_batch(edge_feats_tensor, edge_lbls_tensor)
-        print(f"Batch loss: {loss:.4f}, Batch accuracy: {acc:.4f}")
+            # Convert to tensors
+            edge_feats_tensor = tf.convert_to_tensor(edge_feats, dtype=tf.float32)
+            edge_lbls_tensor = tf.convert_to_tensor(edge_lbls, dtype=tf.float32)
+
+            # Train the model on this batch
+            loss, acc = model.train_on_batch(edge_feats_tensor, edge_lbls_tensor)
+            print(f"Batch loss: {loss:.4f}, Batch accuracy: {acc:.4f}")
+
+            # Update the progress bar
+            pbar.set_postfix(loss=f"{loss:.4f}", acc=f"{acc:.4f}", epoch=epoch+1)
+            pbar.update(1)  # Move progress forward by one batch
 
 print("Training complete! Saving model...")
 model.save("trained_gnn_model")
