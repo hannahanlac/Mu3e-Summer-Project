@@ -1,17 +1,18 @@
 import awkward as ak
 import numpy as np
 import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras.layers import BatchNormalization, Dense, Dropout
-from sklearn.utils import shuffle
-import os
 import pyarrow.parquet as pq
-import pandas as pd
-import matplotlib.pyplot as plt
 import networkx as nx
 from scipy.spatial import cKDTree
+import os
+import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from tqdm import tqdm
+import pandas as pd
+
+
+model_path = "trained_gnn_model"  # Path to saved model
+model = tf.keras.models.load_model(model_path)
 
 def load_data(file_path):
     table = pq.read_table(file_path)  # Load Parquet file as an Arrow table
@@ -51,7 +52,7 @@ def batch_data(awk_array, frames_per_batch=1):
 
         batches.append(batch)
 
-    print(batches[0][72]['layer_array']) 
+    print(batches[0][14]['layer_array']) 
     # Prints the value associated with layer_array for hit indexed number 72 in frame 0 / batch 0
 
     return batches
@@ -113,8 +114,7 @@ def build_graph(batch, k_neighbors=5):
     return G
 
 
-
-file_path = 'ProcessedData/signal1_96_32652/train_data/train_data.parquet'
+file_path = 'ProcessedData/signal1_96_32652/test_data/test_data.parquet'
 awk_data = load_data(file_path)
 batches = batch_data(awk_data)
 batch_graphs = [build_graph(batch) for batch in batches]
@@ -128,9 +128,8 @@ for batch_graph in batch_graphs:
 print(f"Generated {len(batch_graphs)} graphs!")  
 print("First batch graph details:", batch_graphs[0])  # Print first graph
 
-
-
-'''def plot_graph3D(G):
+'''
+def plot_graph3D(G):
     
     """Plots a 3D representation of the hit graph.
 
@@ -163,28 +162,15 @@ print("First batch graph details:", batch_graphs[0])  # Print first graph
     plt.legend()
     plt.show()
 
-plot_graph3D(batch_graphs[0]) # Visualize the first batch's graph
+plot_graph3D(batch_graphs[0])
 '''
 
 def extract_edge_features(G):
-    """
-    Extracts edge features directly from networkx graph.
-    
-    Args:
-        G (networkx.Graph): The input graph.
-
-    Returns:
-        edge_features (np.ndarray): Feature matrix (E, 2C + C)
-        edge_labels (np.ndarray): Ground truth labels (E, 1)
-        edge_list (list): List of edges [(u, v), ...]
-    """
+    """Extracts edge features from graph without calculating ground truth labels liek we did in 7."""
     edge_features = []
-    edge_labels = []
     edge_list = []
 
     for u, v in G.edges():
-        """for node, attrs in G.nodes(data=True):
-            print(node, attrs)"""  # Check what attributes are actually present
 
         if u not in G.nodes or v not in G.nodes:
             print(f"Warning: Edge ({u}, {v}) contains missing nodes")
@@ -195,129 +181,98 @@ def extract_edge_features(G):
             continue  # Skip edges where node attributes are missing
 
 
-
-        # Get node features (assuming stored as attributes)
         source_feats = np.array([G.nodes[u]['gx'], G.nodes[u]['gy'], G.nodes[u]['gz']])
         target_feats = np.array([G.nodes[v]['gx'], G.nodes[v]['gy'], G.nodes[v]['gz']])
-        
-        # Compute feature difference
         feature_diff = source_feats - target_feats
-        
-        # Concatenate to form edge feature vector
-        edge_feat = np.concatenate([source_feats, target_feats, feature_diff])  # (2C + C)
 
-        # Check for missing 'tid' key before using it
-        if 'tid' not in G.nodes[u] or 'tid' not in G.nodes[v]:
-            print(f"Warning: Missing 'tid' attribute in nodes {u} or {v}")
-            continue  # Skip this edge
-
-        # Get ground truth labels (1 if same track, 0 otherwise)
-        label = 1 if G.nodes[u]['tid'] == G.nodes[v]['tid'] else 0
-        
-        # Store results
+        edge_feat = np.concatenate([source_feats, target_feats, feature_diff])
         edge_features.append(edge_feat)
-        edge_labels.append(label)
         edge_list.append((u, v))
 
-    return np.array(edge_features), np.array(edge_labels).reshape(-1, 1), edge_list
+    return np.array(edge_features), edge_list
 
-def edge_classifier(edge_features, channels=(32, 64), with_bn=True, activation='relu', name='edge_classifier'):
-    """
-    MLP-based edge classifier for edge features.
 
-    Args:
-        edge_features: (E, 2C + C) Edge feature matrix
-        channels: Tuple defining the MLP output sizes
-        with_bn: Whether to use batch normalization
-        activation: Activation function
 
-    Returns:
-        edge_logits: (E, 1) - Probability of being same track
-    """
-    inputs = keras.Input(shape=(edge_features.shape[1],))
-    x = inputs
+# Store predictions in memory
+batch_predictions = []
+
+track_counter = 0  # Global counter for tracks
+
+# Process batches and make predictions
+with tqdm(total=len(batch_graphs), desc="Predicting Edges", unit="batch") as pbar:
+    for batch_idx, batch in enumerate(batch_graphs):
+
+        if len(batch_graph.edges) == 0:
+            pbar.update(1)
+            continue  
+
+        edge_feats, edge_list = extract_edge_features(batch_graph)
+        if len(edge_feats) == 0:
+            pbar.update(1)
+            continue  
+
+        edge_feats_tensor = tf.convert_to_tensor(edge_feats, dtype=tf.float32)
+
+        predictions = model.predict(edge_feats_tensor, verbose=0)
+
+        # Store predictions in memory
+        batch_predictions.append({
+            "batch_index": batch_idx,
+            "edges": edge_list,
+            "scores": predictions.flatten().tolist()
+        })
+
+        pbar.update(1)
+
+print("Predictions stored in memory. Ready for post-processing!")
+
+# Example: Access predictions for the first batch
+print(f"Batch 0 Predictions: {batch_predictions[0]}")
+
+
+
+def extract_tracks(batch_predictions, score_threshold=0.7):
+    """Processes predictions to extract track groups while ensuring no duplicate nodes in the same track."""
+    batch_tracks = []
     
-    for idx, channel in enumerate(channels):
-        x = keras.layers.Dense(channel, activation=None, kernel_initializer='he_normal', name=f"{name}_dense{idx}")(x)
-
-        if with_bn:
-            x = keras.layers.BatchNormalization(name=f"{name}_bn{idx}")(x)
+    for batch in batch_predictions:
+        batch_idx, edges, scores = batch["batch_index"], batch["edges"], batch["scores"]
         
-        x = keras.layers.Activation(activation, name=f"{name}_act{idx}")(x)
+        # Filter edges based on confidence threshold
+        high_confidence_edges = [(u, v) for (u, v), score in zip(edges, scores) if score > score_threshold]
 
-    # Final classification layer (probability of being the same track)
-    edge_logits = keras.layers.Dense(1, activation='sigmoid', name=f"{name}_output")(x)
+        # Construct track graph
+        track_graph = nx.Graph()
+        track_graph.add_edges_from(high_confidence_edges)
 
-    return keras.Model(inputs, edge_logits)
+        # Extract tracks while ensuring no duplicate nodes per track
+        tracks = []
+        for component in nx.connected_components(track_graph):
+            unique_nodes = list(set(component))  # Ensure uniqueness
+            tracks.append(unique_nodes)
 
-# Extract edge features from one of our batch graphs
-"""edge_features, edge_labels, edge_list = extract_edge_features(batch_graphs[0])
+        batch_tracks.append({"batch_index": batch_idx, "tracks": tracks})
 
-batch_edge_features = []
-batch_edge_labels = []
+    return batch_tracks
 
-for batch_graph in batch_graphs:
-    edge_feats, edge_lbls, _ = extract_edge_features(batch_graph)
-    batch_edge_features.append(edge_feats)
-    batch_edge_labels.append(edge_lbls)
+# Extract tracks from predictions
+tracks = extract_tracks(batch_predictions, score_threshold=0.7)
 
-# Define model
-model = edge_classifier(edge_features)
+def save_tracks_csv(tracks, output_path):
+    """Saves extracted tracks to a CSV file for easy inspection."""
+    track_data = []
+    for batch in tracks:
+        batch_idx = batch["batch_index"]
+        for track_id, track in enumerate(batch["tracks"]):
+            for node in track:
+                track_data.append((batch_idx, track_id, node))
 
-# Compile model
-model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-
-# Train model
-model.fit(edge_features, edge_labels, epochs=10, batch_size=64)
-# This is only working using the first batch, not all of them
-"""
-
-# Define model structure
-edge_feats, _, _ = extract_edge_features(batch_graphs[0])  # Get first batch features
-model = edge_classifier(np.zeros((1, edge_feats.shape[1])))  # Use the correct shape as dummy input to initialize
-
-# Compile model
-model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-
-# Train model iteratively over batches
-num_epochs = 10  # Define number of epochs
-
-total_steps = num_epochs * len(batch_graphs)  # Total iterations across all epochs
-
-with tqdm(total=total_steps, desc="Training Progress", unit="batch") as pbar:
-    for epoch in range(num_epochs):
-        print(f"Epoch {epoch+1}/{num_epochs}")
-
-        for batch_graph in batch_graphs:
-            # Extract edge features & labels for the batch
-            edge_feats, edge_lbls, _ = extract_edge_features(batch_graph)
-
-            # Convert to tensors
-            edge_feats_tensor = tf.convert_to_tensor(edge_feats, dtype=tf.float32)
-            edge_lbls_tensor = tf.convert_to_tensor(edge_lbls, dtype=tf.float32)
-
-            # Train the model on this batch
-            loss, acc = model.train_on_batch(edge_feats_tensor, edge_lbls_tensor)
-            print(f"Batch loss: {loss:.4f}, Batch accuracy: {acc:.4f}")
-
-            # Update the progress bar
-            pbar.set_postfix(loss=f"{loss:.4f}", acc=f"{acc:.4f}", epoch=epoch+1)
-            pbar.update(1)  # Move progress forward by one batch
-
-print("Training complete! Saving model...")
-model.save("trained_gnn_model")
+    df = pd.DataFrame(track_data, columns=["batch_index", "track_id", "node"])
+    df.to_csv(output_path, index=False)
 
 
+csv_output = "predicted_tracks.csv"
 
-################################################
+save_tracks_csv(tracks, csv_output)
 
-"""def plot_graph2D(G):
-    pos = {i: (G.nodes[i]['gx'], G.nodes[i]['gy']) for i in G.nodes}  # 2D projection
-    plt.figure(figsize=(10, 8))
-    nx.draw(G, pos, node_size=20, edge_color='gray', alpha=0.5)
-    plt.xlabel('gx')
-    plt.ylabel('gy')
-    plt.title('Batch 0 Hit Graph')
-    plt.show()
-
-plot_graph2D(batch_graphs[0])"""
+print(f"Tracks saved to {csv_output}")
