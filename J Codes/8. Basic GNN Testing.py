@@ -73,6 +73,8 @@ def build_graph(batch, k_neighbors=5):
     gx = ak.to_numpy(batch['gx'])
     gy = ak.to_numpy(batch['gy'])
     gz = ak.to_numpy(batch['gz'])
+    layers = ak.to_numpy(batch['layer_array'])
+    hit_IDs = ak.to_numpy(batch['hit_ID'])
 
     # Ensure arrays are not empty
     if len(gx) == 0 or len(gy) == 0 or len(gz) == 0:
@@ -92,13 +94,13 @@ def build_graph(batch, k_neighbors=5):
     G = nx.Graph()  # Initialize an empty graph
 
     # Add nodes
-    for i, (x, y, z) in enumerate(coords):
+    for i, (x, y, z, layer, hit_ID) in enumerate(zip(gx, gy, gz, layers, hit_IDs)):
         if np.isnan(x) or np.isnan(y) or np.isnan(z):
             print(f"Skipping node {i} due to NaN values")
             continue  # Skip nodes with NaN coordinates
 
         try:
-            G.add_node(i, gx=x, gy=y, gz=z, hit_ID=batch['hit_ID'][i], tid=batch['tid_array'][i])
+            G.add_node(i, gx=x, gy=y, gz=z, layer=layer, hit_ID=hit_ID)
             # Node has features hit_ID and tid_array (need to ensure tid not accessible in training/testing)
         except KeyError as e:
             print(f"Missing key when adding node {i}: {e}")
@@ -107,9 +109,20 @@ def build_graph(batch, k_neighbors=5):
     # Find nearest neighbors for each hit
     tree = cKDTree(coords)  # KDTree for fast nearest neighbor search
     for i, coord in enumerate(coords):
+        layer_i = layers[i]
+
         _, indices = tree.query(coord, k=k_neighbors + 1)  # +1 to exclude self
+
         for j in indices[1:]:  # Skip self (first index)
-            G.add_edge(i, j)  # Add an edge between neighbors
+            if j >= len(layers):  # Ensure j is within valid bounds
+                continue  
+
+            layer_j = layers[j]  
+
+            # Only allow connections to adjacent layers
+            if abs(layer_j - layer_i) == 1:  # Ensure adjacency
+                G.add_edge(i, j)  
+
 
     return G
 
@@ -128,7 +141,7 @@ for batch_graph in batch_graphs:
 print(f"Generated {len(batch_graphs)} graphs!")  
 print("First batch graph details:", batch_graphs[0])  # Print first graph
 
-'''
+
 def plot_graph3D(G):
     
     """Plots a 3D representation of the hit graph.
@@ -163,8 +176,21 @@ def plot_graph3D(G):
     plt.show()
 
 plot_graph3D(batch_graphs[0])
-'''
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+'''
 def extract_edge_features(G):
     """Extracts edge features from graph without calculating ground truth labels liek we did in 7."""
     edge_features = []
@@ -217,7 +243,7 @@ with tqdm(total=len(batch_graphs), desc="Predicting Edges", unit="batch") as pba
 
         # Store predictions in memory
         batch_predictions.append({
-            "batch_index": batch_idx,
+            "batch_idx": batch_idx,
             "edges": edge_list,
             "scores": predictions.flatten().tolist()
         })
@@ -231,43 +257,95 @@ print(f"Batch 0 Predictions: {batch_predictions[0]}")
 
 
 
-def extract_tracks(batch_predictions, score_threshold=0.7):
-    """Processes predictions to extract track groups while ensuring no duplicate nodes in the same track."""
-    batch_tracks = []
-    
-    for batch in batch_predictions:
-        batch_idx, edges, scores = batch["batch_index"], batch["edges"], batch["scores"]
+def extract_tracks(batch_graphs, edge_scores):
+    """
+    Extracts 4-hit tracks from batch graphs while storing unmatched hits.
+
+    Args:
+        batch_graphs (list): List of NetworkX graphs representing batches.
+        edge_scores (dict): Dictionary of edge scores { (node1, node2): score }.
+
+    Returns:
+        tuple: (list of 4-hit tracks, list of unmatched hits).
+    """
+
+    all_tracks = []  # Stores all valid 4-hit tracks
+    unmatched_hits = []  # Stores hits that do not belong to any track
+
+    for G in batch_graphs:  # Loop through each batch graph
+        used_nodes = set()  # Track nodes that are already in a track
+        node_layers = {}  # Dictionary to store nodes grouped by layer
         
-        # Filter edges based on confidence threshold
-        high_confidence_edges = [(u, v) for (u, v), score in zip(edges, scores) if score > score_threshold]
+        # Group nodes by their layer
+        for node, data in G.nodes(data=True):
+            layer = data['layer']
+            if layer not in node_layers:
+                node_layers[layer] = []
+            node_layers[layer].append(node)
 
-        # Construct track graph
-        track_graph = nx.Graph()
-        track_graph.add_edges_from(high_confidence_edges)
+        # Sort layers to ensure correct sequence
+        sorted_layers = sorted(node_layers.keys())  
 
-        # Extract tracks while ensuring no duplicate nodes per track
+        # Track-building process
         tracks = []
-        for component in nx.connected_components(track_graph):
-            unique_nodes = list(set(component))  # Ensure uniqueness
-            tracks.append(unique_nodes)
+        for layer in sorted_layers[:-3]:  # Ensure at least 4 layers exist ahead
+            for node in node_layers[layer]:
+                if node in used_nodes:
+                    continue  # Skip already used nodes
 
-        batch_tracks.append({"batch_index": batch_idx, "tracks": tracks})
+                track = [node]
+                current_node = node
+                valid_track = True
 
-    return batch_tracks
+                for next_layer in sorted_layers[sorted_layers.index(layer) + 1:]:
+                    candidates = [
+                        neighbor for neighbor in G.neighbors(current_node)
+                        if neighbor in node_layers[next_layer] and neighbor not in used_nodes
+                    ]
+
+                    if not candidates:
+                        valid_track = False
+                        break  # No valid hit found on the next layer
+
+                    # Select the best connection based on edge scores
+                    best_next_node = max(candidates, key=lambda n: edge_scores.get((current_node, n), 0))
+
+                    track.append(best_next_node)
+                    current_node = best_next_node
+
+                    if len(track) == 4:
+                        break  # Stop at 4-hit tracks
+
+                if valid_track and len(track) == 4:
+                    tracks.append(track)
+                    used_nodes.update(track)  # Mark nodes as used
+
+        # Collect unused hits that are not part of any track
+        for layer in sorted_layers:
+            for node in node_layers[layer]:
+                if node not in used_nodes:
+                    unmatched_hits.append(node)
+
+        all_tracks.extend(tracks)
+
+    return all_tracks, unmatched_hits
+
+# Convert batch_predictions into a dictionary of edge scores
+edge_scores_dict = { edge: score for edge, score in zip(batch_predictions['edges'], batch_predictions['scores']) }
 
 # Extract tracks from predictions
-tracks = extract_tracks(batch_predictions, score_threshold=0.7)
+tracks = extract_tracks(batch_graphs, batch_predictions)
 
 def save_tracks_csv(tracks, output_path):
     """Saves extracted tracks to a CSV file for easy inspection."""
     track_data = []
     for batch in tracks:
-        batch_idx = batch["batch_index"]
+        batch_idx = batch["batch_idx"]
         for track_id, track in enumerate(batch["tracks"]):
             for node in track:
                 track_data.append((batch_idx, track_id, node))
 
-    df = pd.DataFrame(track_data, columns=["batch_index", "track_id", "node"])
+    df = pd.DataFrame(track_data, columns=["batch_idx", "track_id", "node"])
     df.to_csv(output_path, index=False)
 
 
@@ -276,3 +354,4 @@ csv_output = "predicted_tracks.csv"
 save_tracks_csv(tracks, csv_output)
 
 print(f"Tracks saved to {csv_output}")
+'''

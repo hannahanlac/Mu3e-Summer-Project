@@ -135,6 +135,9 @@ def Normalization(train_data,test_data):
         if key == 'hit_ID':
             continue
 
+        if key == 'layer_array':
+            continue
+
         test_array = test_array.reshape(-1, 1)
         test_array = scaler.transform(test_array)
 
