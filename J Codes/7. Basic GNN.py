@@ -18,7 +18,7 @@ from mpl_toolkits.mplot3d import Axes3D
 def load_data(file_path):
     table = pq.read_table(file_path)  # Load Parquet file as an Arrow table
     print(table)
-    awk_array = ak.from_arrow(table)       # Convert Arrow table to an Awkward Array
+    awk_array = ak.from_arrow(table)  # Convert Arrow table to an Awkward Array
     print(awk_array)
 
     # Debugging: Check the first few rows
@@ -54,7 +54,7 @@ def batch_data(awk_array, frames_per_batch=1):
         batches.append(batch)
 
     print(batches[0][72]['layer_array']) 
-    # prints the value associated layer_array for hit indexed number 72 in frame 0 / batch 0
+    # Prints the value associated with layer_array for hit indexed number 72 in frame 0 / batch 0
 
     return batches
 
@@ -94,14 +94,16 @@ def build_graph(batch, k_neighbors=5):
 
     # Add nodes
     for i, (x, y, z) in enumerate(coords):
-        # Ensure all required attributes exist before adding the node
         if np.isnan(x) or np.isnan(y) or np.isnan(z):
+            print(f"Skipping node {i} due to NaN values")
             continue  # Skip nodes with NaN coordinates
 
         try:
             G.add_node(i, gx=x, gy=y, gz=z, hit_ID=batch['hit_ID'][i], tid=batch['tid_array'][i])
-        except KeyError:
-            continue  # Skip nodes missing 'hit_ID' or 'tid_array'
+            # Node has features hit_ID and tid_array (need to ensure tid not accessible in training/testing)
+        except KeyError as e:
+            print(f"Missing key when adding node {i}: {e}")
+            continue
 
     # Find nearest neighbors for each hit
     tree = cKDTree(coords)  # KDTree for fast nearest neighbor search
@@ -119,10 +121,18 @@ awk_data = load_data(file_path)
 batches = batch_data(awk_data)
 batch_graphs = [build_graph(batch) for batch in batches]
 
+for batch_graph in batch_graphs:
+    print("Graph nodes with attributes:")
+    for node, data in batch_graph.nodes(data=True):
+        print(node, data)
+
+
 print(f"Generated {len(batch_graphs)} graphs!")  
 print("First batch graph details:", batch_graphs[0])  # Print first graph
 
-def plot_graph3D(G):
+
+
+'''def plot_graph3D(G):
     
     """Plots a 3D representation of the hit graph.
 
@@ -156,8 +166,8 @@ def plot_graph3D(G):
     plt.show()
 
 plot_graph3D(batch_graphs[0]) # Visualize the first batch's graph
-
 '''
+
 def extract_edge_features(G):
     """
     Extracts edge features directly from networkx graph.
@@ -178,6 +188,15 @@ def extract_edge_features(G):
         for node, attrs in G.nodes(data=True):
             print(node, attrs)  # Check what attributes are actually present
 
+        if u not in G.nodes or v not in G.nodes:
+            print(f"Warning: Edge ({u}, {v}) contains missing nodes")
+            continue  # Skip missing nodes
+
+        if 'gx' not in G.nodes[u] or 'gx' not in G.nodes[v]:
+            print(f"Warning: Missing 'gx' attribute in nodes {u} or {v}")
+            continue  # Skip edges where node attributes are missing
+
+
 
         # Get node features (assuming stored as attributes)
         source_feats = np.array([G.nodes[u]['gx'], G.nodes[u]['gy'], G.nodes[u]['gz']])
@@ -188,6 +207,11 @@ def extract_edge_features(G):
         
         # Concatenate to form edge feature vector
         edge_feat = np.concatenate([source_feats, target_feats, feature_diff])  # (2C + C)
+
+        # Check for missing 'tid' key before using it
+        if 'tid' not in G.nodes[u] or 'tid' not in G.nodes[v]:
+            print(f"Warning: Missing 'tid' attribute in nodes {u} or {v}")
+            continue  # Skip this edge
 
         # Get ground truth labels (1 if same track, 0 otherwise)
         label = 1 if G.nodes[u]['tid'] == G.nodes[v]['tid'] else 0
@@ -246,16 +270,18 @@ model = edge_classifier(edge_features)
 model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
 # Train model
-model.fit(edge_features, edge_labels, epochs=10, batch_size=64)"""
+model.fit(edge_features, edge_labels, epochs=10, batch_size=64)
+# This is only working using the first batch, not all of them
+"""
 
-# Step 1: Define model structure
+# Define model structure
 edge_feats, _, _ = extract_edge_features(batch_graphs[0])  # Get first batch features
 model = edge_classifier(np.zeros((1, edge_feats.shape[1])))  # Use the correct shape as dummy input to initialize
 
-# Step 2: Compile model
+# Compile model
 model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
-# Step 3: Train model iteratively over batches
+# Train model iteratively over batches
 num_epochs = 10  # Define number of epochs
 
 for epoch in range(num_epochs):
@@ -275,29 +301,11 @@ for epoch in range(num_epochs):
 
 print("Training complete! Saving model...")
 model.save("trained_gnn_model")
-'''
 
 
 
 #####################################
-"""class EdgeClassifier(tf.keras.Model):
-    def __init__(self, input_dim, hidden_dim):
-        super().__init__()
-        self.dense1 = Dense(hidden_dim, activation='relu')
-        self.batch_norm = BatchNormalization()
-        self.dense2 = Dense(hidden_dim, activation='relu')
-        self.output_layer = Dense(1, activation='sigmoid')
-    
-    def call(self, inputs):
-        x = self.dense1(inputs)
-        x = self.batch_norm(x)
-        x = self.dense2(x)
-        return self.output_layer(x)
-
-def train_model(x_train, y_train, model, epochs=1, batch_size=32):
-    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-    model.fit(x_train, y_train, epochs=epochs, batch_size=batch_size)
-
+"""
 def cluster_hits(features, predictions, threshold=0.8):
 
     mask = (predictions > threshold).squeeze()
