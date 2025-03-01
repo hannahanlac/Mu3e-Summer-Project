@@ -28,8 +28,8 @@ def load_data(file_path):
     print("First few hit IDs:", ak.to_numpy(awk_array['hit_ID'])[:10])
     print("First few pixelx values", ak.to_numpy(awk_array['pixelx_array'])[:10])
     
-    """frame_values = ak.to_numpy(awk_array['frame_array'])  # Convert to NumPy
-    print("Are frames sorted?", np.all(frame_values[:-1] <= frame_values[1:]))  # Check if sorted"""
+    frame_values = ak.to_numpy(awk_array['frame_array'])  # Convert to NumPy
+    print("Are frames sorted?", np.all(frame_values[:-1] <= frame_values[1:]))  # Check if sorted
 
     return awk_array
 

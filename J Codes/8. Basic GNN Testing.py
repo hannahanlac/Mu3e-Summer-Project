@@ -141,7 +141,7 @@ for batch_graph in batch_graphs:
 print(f"Generated {len(batch_graphs)} graphs!")  
 print("First batch graph details:", batch_graphs[0])  # Print first graph
 
-
+'''
 def plot_graph3D(G):
     
     """Plots a 3D representation of the hit graph.
@@ -176,11 +176,24 @@ def plot_graph3D(G):
     plt.show()
 
 plot_graph3D(batch_graphs[0])
+'''
+'''
+def plot_graph2D(G):
+    pos = {i: (G.nodes[i]['gx'].item(), G.nodes[i]['gy'].item()) for i in G.nodes}  # 2D projection
+    plt.figure(figsize=(10, 8))
+    nx.draw(G, pos, node_size=20, edge_color='gray', alpha=0.5)
+    plt.xlabel('gx')
+    plt.ylabel('gy')
+    plt.title('Single Frame Hit Graph')
+    plt.show()
 
-
-
-
-
+plot_graph2D(batch_graphs[0])
+plot_graph2D(batch_graphs[1])
+plot_graph2D(batch_graphs[2])
+plot_graph2D(batch_graphs[3])
+plot_graph2D(batch_graphs[4])
+plot_graph2D(batch_graphs[5])
+'''
 
 
 
