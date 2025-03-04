@@ -286,24 +286,25 @@ def EfficiencyLambdaMomentumPlot(data_file, min_lam, max_lam, lam_res, min_p, ma
     
     #Plot
     plt.figure(figsize=(10, 6))
-
+        
     levels = np.arange(0, 1.1, 0.1) # Use for controlling colourmap no. colours
     norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=256)
     mesh = plt.pcolormesh(lambda_bins, momentum_bins, efficiency_matrix.T, cmap='viridis', norm=norm, shading='auto')
     cbar = plt.colorbar(mesh, ticks=levels, pad=0.0)
-    cbar.set_label('Efficiency', fontsize=14)
-    cbar.ax.tick_params(labelsize=12)
+    cbar.set_label('Efficiency', fontsize=18)
+    cbar.ax.tick_params(labelsize=14)
 
     ax = plt.gca()
-    ax.tick_params(axis='both', which='major', labelsize=14, length=8, width=2) 
-    ax.tick_params(axis='both', which='minor', labelsize=10, length=4, width=1)  
+    ax.tick_params(axis='both', which='major', labelsize=16, length=8, width=2) 
+    ax.tick_params(axis='both', which='minor', labelsize=12, length=4, width=1)  
     ax.minorticks_on()
     ax.xaxis.set_minor_locator(ticker.AutoMinorLocator(5))
     ax.yaxis.set_minor_locator(ticker.AutoMinorLocator(5))
 
-    plt.xlabel("$\lambda$ [rad]", fontsize=16)
-    plt.ylabel(f"{p_plot_name} [MeV/c]", fontsize=16)
-    plt.title(f"Efficiency as a Function of $\lambda$ and {p_plot_name}", fontsize=18)
+    plt.xlabel("$\lambda$ [rad]", fontsize=18)
+    plt.ylabel(f"{p_plot_name} [MeV/c]", fontsize=18)
+    plt.title(f"Efficiency as a Function of $\lambda$ and {p_plot_name}", fontsize=20)
+
 
     plt.show()
     return
@@ -479,19 +480,19 @@ def FakeRateLambdaMomentumPlot(data_file, min_lam, max_lam, lam_res, min_p, max_
     norm = mcolors.BoundaryNorm(boundaries=levels, ncolors=256)
     mesh = plt.pcolormesh(lambda_bins, momentum_bins, fake_rate_matrix.T, cmap='viridis', norm=norm, shading='auto')
     cbar = plt.colorbar(mesh, ticks=level_ticks, pad=0.0)
-    cbar.set_label('Fake rate', fontsize=14)
-    cbar.ax.tick_params(labelsize=12)
+    cbar.set_label('Fake Rate', fontsize=18)
+    cbar.ax.tick_params(labelsize=14)
 
     ax = plt.gca()
-    ax.tick_params(axis='both', which='major', labelsize=14, length=8, width=2) 
-    ax.tick_params(axis='both', which='minor', labelsize=10, length=4, width=1)  
+    ax.tick_params(axis='both', which='major', labelsize=16, length=8, width=2) 
+    ax.tick_params(axis='both', which='minor', labelsize=12, length=4, width=1)  
     ax.minorticks_on()
     ax.xaxis.set_minor_locator(ticker.AutoMinorLocator(5))
     ax.yaxis.set_minor_locator(ticker.AutoMinorLocator(5))
 
-    plt.xlabel("$\lambda$ [rad]", fontsize=16)
-    plt.ylabel(f"{p_plot_name} [MeV/c]", fontsize=16)
-    plt.title(f"Fake rate as a Function of $\lambda$ and {p_plot_name}", fontsize=18)
+    plt.xlabel("$\lambda$ [rad]", fontsize=18)
+    plt.ylabel(f"{p_plot_name} [MeV/c]", fontsize=18)
+    plt.title(f"Fake Rate as a Function of $\lambda$ and {p_plot_name}", fontsize=20)
 
     plt.show()
     return
@@ -666,12 +667,12 @@ def RatioLongToShortTracks (data_file, min_lam, max_lam, lam_res, min_p, max_p, 
 hits_data = "/root/Mu3eProject/RawData/TransformerData/signal1_95/signal1_95_hits_data.csv"
 truth_data = "/root/Mu3eProject/RawData/TransformerData/signal1_95/signal1_95_truth_data.csv"
 trirec_file = "/root/Mu3eProject/RawData/TrirecFiles/signal1_95_32652/trirec_data_signal1_95_32652_frames.csv"
-BuildComparisonData(hits_data, truth_data, trirec_file, signal_no = 'signal1_95')
+#BuildComparisonData(hits_data, truth_data, trirec_file, signal_no = 'signal1_95')
 
 
 #Test efficiency
-# comparison_file = "/root/Mu3eProject/RawData/ComparisonData/comparison_data_signal1_98.csv"
-# df_comparison = pd.read_csv(comparison_file)
+comparison_file = "/root/Mu3eProject/RawData/ComparisonData/comparison_data_signal1_98.csv"
+df_comparison = pd.read_csv(comparison_file)
 
 
 # EfficiencyTrackLengthPlot(df_comparison, truth_measure='absolute')
@@ -679,13 +680,13 @@ BuildComparisonData(hits_data, truth_data, trirec_file, signal_no = 'signal1_95'
 # EfficiencyMomentumPlot(df_comparison, min_momentum = 0, max_momentum = 100, momentum_res = 10, p_type = 'traj_p')
 
 #EfficiencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits = 4, truth_measure = 'absolute')
-#EfficiencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_p', num_hits = 4, truth_measure = 'all')
+EfficiencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_p', num_hits = 4, truth_measure = 'all')
 
 # RatioLongToShortTracks(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits = 4)
 
 # TrackFrequencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 2, p_type = 'traj_p', num_hits = 4, truth_measure = 'absolute')
 
-# FakeRateLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 2, p_type = 'traj_p', num_hits = 4, fake_measure = 'lenient') #Harsh = non absolute true = fake, lenient = mc_prime:0 AND mc measure:0
+FakeRateLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 2, p_type = 'traj_p', num_hits = 4, fake_measure = 'harsh') #Harsh = non absolute true = fake, lenient = mc_prime:0 AND mc measure:0
 
 #TotalFakeRateMeasure(df_comparison, fake_measure = 'lenient', num_hits = 4 )
 
