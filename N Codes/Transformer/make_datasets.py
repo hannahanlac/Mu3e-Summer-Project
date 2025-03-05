@@ -6,9 +6,9 @@ import os
 import torch
 from torch.utils.data import Dataset, DataLoader
 import random
+import glob
 
 ###### Use this code to create the data sets for the transformer model. Saves all the files into a data_training folder.
-# Make this code just by editing the extract_hits optimised
 
 # Hit data extraction
 class Hit(object):
@@ -119,8 +119,8 @@ def CompileHits(signal_file, signal_no):
     """Function for compiling the hits_data"""
 
     # Inputting a file and state which one testing
-    print("Test with the file:", sort_file) 
-    print()
+    #print("Test with the file:", sort_file) 
+    #print()
 
     # Open the root file, access the hits tree, find the total number of frames.
     mu3eTree = signal_file['mu3e'].arrays(['hit_pixelid', 'hit_timestamp', 'hit_mc_i', 'hit_mc_n']) # Opens just the Mu3eTree branches we need
@@ -136,29 +136,31 @@ def CompileHits(signal_file, signal_no):
     #Open the mchits tree, make a lookup dict preserving index no.
     mchits = signal_file["mu3e_mchits"].arrays(["tid", "hid", "hid_g"])
     print("Building mchits dictionary: Takes around 2 mins")
-    mchits_data = mchits_data = {i: {"tid": tid, "hid": hid, "hid_g": hid_g} 
+    mchits_data = mchits_data = {i: {"tid": tid, "hid": hid, "hid_g": hid_g}        # This is necessary as the tid are stored
                 for i, (tid, hid, hid_g) in enumerate(zip(mchits["tid"], mchits["hid"], mchits["hid_g"]))}
 
     #total frames and numbers:
     total_frames = len(mu3eTree)
     frame_numbers = list(range(0, total_frames)) 
-    print('Total number of frames in file:',total_frames)
+    #print('Total number of frames in file:',total_frames)
 
     #Iterate over all frames, collect hit information
     all_hits = [] # List for all the frame hits to be appended to  
     for frame_number in frame_numbers:
-        print("Frame number:", frame_number) #NOTE: Means lots of print statements. Remove when confident, but good way to track progess
+        #print("Frame number:", frame_number) #NOTE: Means lots of print statements. Remove when confident, but good way to track progess
         frame_hits = HitsInFrame(frame_number, mu3eTree,sensor_data_dict, mchits_data)
         all_hits.extend(frame_hits)
 
     # Sort hits by frame number and then by tid within each frame
-    all_hits.sort(key=lambda x: (x['frameNumber'], x['tid'],x['hid']))
+    #all_hits.sort(key=lambda x: (x['frameNumber'], x['tid'],x['hid'])) #NOTE: If this line is included, you sort training data into tracks anyway!! Could be an issue.
 
 
-    # Converting array to Panda, and then saving as CSV 
-    hit_data = pd.DataFrame(all_hits)#
-    file_name = f"{signal_no}_hits_data.csv"
-    hit_data.to_csv(os.path.join(directory, file_name), index=False) #NOTE: Might be better to have different format, but CSV fine for now
+    # Converting array to Panda
+    hit_data = pd.DataFrame(all_hits)
+    
+    #If want to save as csv
+    # file_name = f"{signal_no}_hits_data.csv"
+    # hit_data.to_csv(os.path.join(directory, file_name), index=False) #NOTE: Might be better to have different format, but CSV fine for now
 
     return hit_data
 
@@ -195,20 +197,21 @@ def CompileTruth(signal_file, signal_no):
 
     total_frames = len(mu3eTree)
     frame_numbers = list(range(0, total_frames)) # Set to 5000 for now to avoid files being too big for git pushing
-    print('Total number of frames in file:',total_frames)
+    #print('Total number of frames in file:',total_frames)
 
     #Iterate over all frames, collect hit information
     all_hits = [] # List for all the frame hits to be appended to  
     for frame_number in frame_numbers:
-        print("Frame number:", frame_number)
+        #print("Frame number:", frame_number)
         frame_hits = TruthInfo(frame_number, mu3eTree)
         all_hits.extend(frame_hits)
         
-
-    # Converting array to Panda, and then saving as CSV 
+    # Converting array to Panda
     truth_data = pd.DataFrame(all_hits)
-    file_name = f"{signal_no}_truth_data.csv"
-    truth_data.to_csv(os.path.join(directory, file_name), index=False) #NOTE: Might be better to have different format, but CSV fine for now
+    
+    #If want to save as csv
+    # file_name = f"{signal_no}_truth_data.csv" 
+    # truth_data.to_csv(os.path.join(directory, file_name), index=False) #NOTE: Might be better to have different format, but CSV fine for now
 
     return truth_data
 
@@ -277,7 +280,10 @@ def IndexedData (hits_truth_merge, momentum_bins, lambda_bins, phi_bins, q_mappi
     hits_truth_merge['p_bin'] = np.digitize(hits_truth_merge['traj_p'], bins=momentum_bins, right=False) - 1
     hits_truth_merge['lambda_bin'] = np.digitize(hits_truth_merge['traj_lambda'], bins=lambda_bins, right=False) - 1
     hits_truth_merge['phi_bin'] = np.digitize(hits_truth_merge['traj_phi'], bins=phi_bins, right=False) - 1
-    hits_truth_merge['type_bin'] = hits_truth_merge['traj_type'].map(q_mapping) 
+    hits_truth_merge['type_bin'] = hits_truth_merge['traj_type'].map(q_mapping)
+    hits_truth_merge.dropna(subset=['type_bin'], inplace=True) #Note this is a litte unphysical - dropping every hit except those defined below from the processes expect!
+                                                               #However as a first test of getting the hits working for all files, it'll do. I leave it to the people after me to make a more thorough grouping.
+
 
     # Assign unique bin index for classification. Idea here is defining on each bin type by keeping in blocks of numbers
     hits_truth_merge['bin_index'] = (hits_truth_merge['p_bin'] * (num_lam_bins * num_phi_bins * 2) +  # 30 lambda bins, 30 phi bins, 2 type bins
@@ -285,17 +291,20 @@ def IndexedData (hits_truth_merge, momentum_bins, lambda_bins, phi_bins, q_mappi
                        hits_truth_merge['phi_bin'] * 2 +
                        hits_truth_merge['type_bin']) 
 
-    hits_truth_indexed = hits_truth_merge #Renaming to keep track that here has now been indexed
+    hits_truth_bin_indexed = hits_truth_merge #Renaming to keep track that here has now been indexed
 
-    file_path = f"/root/Mu3eProject/RawData/TransformerData/{signal_no}/{signal_no}_hits_truth_indexed.csv"
-    hits_truth_merge.to_csv(file_path, index=False)
+    #Save this as the master truth csv, for all hits (i.e before you split to training/test sets for the model)
+    # file_path = f"{directory}{signal_no}_all_hits_truth_master.csv"
+    # hits_truth_merge.to_csv(file_path, index=False)
 
-    hits_truth_filtered = hits_truth_merge[["frameNumber","tid","gx","gy","gz","bin_index"]]
-    file_path = f"/root/Mu3eProject/RawData/TransformerData/{signal_no}/{signal_no}_hits_truth_indexed_filtered.csv"
-    hits_truth_filtered.to_csv(file_path, index=False)
-    return hits_truth_indexed, hits_truth_filtered
+    # If you want filtered data:
+    # hits_truth_filtered = hits_truth_merge[["frameNumber","tid","gx","gy","gz","bin_index"]]
+    # file_path = f"{directory}{signal_no}_hits_truth_indexed_filtered.csv"
+    #hits_truth_filtered.to_csv(file_path, index=False)
+    return hits_truth_bin_indexed
 
 
+# Making tensor files:
 class FrameDataset(Dataset):
     def __init__(self, data):
         # Load your CSV data
@@ -327,15 +336,15 @@ def save_tensors_and_csv(features, labels, frame_nums, save_path, file_prefix):
     # Save as .pt
     torch.save((features, labels), tensor_path)
 
-    # Convert to DataFrame and save as CSV
-    features_np = [f.numpy() for f in features]
-    labels_np = [l.numpy() for l in labels]
-    df = pd.DataFrame({
-        "frameNumber": frame_nums,
-        "features": [list(f.flatten()) for f in features_np],  # Flatten to save as CSV
-        "labels": [list(l) for l in labels_np]
-    })
-    df.to_csv(csv_path, index=False)
+    # # Convert to DataFrame and save as CSV  - NOTE: This was used for testing tensors were saving correctly. Not really needed for training.
+    # features_np = [f.numpy() for f in features]
+    # labels_np = [l.numpy() for l in labels]
+    # df = pd.DataFrame({
+    #     "frameNumber": frame_nums,
+    #     "features": [list(f.flatten()) for f in features_np],  # Flatten to save as CSV
+    #     "labels": [list(l) for l in labels_np]
+    # })
+    # df.to_csv(csv_path, index=False)
 
     print(f"Saved {file_prefix} data to:\n  - {tensor_path}\n  - {csv_path}")
 
@@ -427,15 +436,73 @@ def DataToTorch(hits_truth_indexed, training_data_directory, signal_no, train_ra
     print(f"Saved splits:\n  Train: {len(data_splits['train'][0])}\n  Validation: {len(data_splits['val'][0])}\n  Test: {len(data_splits['test'][0])}")
 
 
+# Function for automating all above. This should really be in a separate file. I tried, and it wasn't working... you can make it more efficient if you want.
+def ProcessRootFiles(root_dir, output_dir, p_bins, lam_bins, phi_bins, q_mapping):
+    """Process all ROOT files in a given directory and generate training data."""
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    all_hit_data = []
+    all_truth_data = []
+    frame_offset = 0  # Keep track of frame numbers across files
+
+    root_files = glob.glob(os.path.join(root_dir, "*.root"))
+
+    print(f"Found {len(root_files)} ROOT files in {root_dir}")
+    print(f"Found {len(root_files)} ROOT files: {root_files}")
+
+    for root_file in root_files:
+        # Extract the first two parts
+        signal_no = "_".join(root_file.split("_")[:2])
+        print(f"Processing {signal_no}")
+        signal_file = uproot.open(root_file)
+        print()
+        # Compile hits and truth data
+        print(f"Compiling hits data for {signal_no}")
+        hit_data =  CompileHits(signal_file, signal_no)
+        print(f"Compiling truth data for {signal_no}")
+        truth_data =  CompileTruth(signal_file, signal_no)
+
+        # Adjust frame numbers to avoid duplicates
+        hit_data["frameNumber"] += frame_offset
+        truth_data["frameNumber"] += frame_offset
+
+        all_hit_data.append(hit_data)
+        all_truth_data.append(truth_data)
+        frame_offset += hit_data["frameNumber"].max() + 1  # Update offset for next file
+
+    print("Merging data from all roots files:")
+    merged_hits = pd.concat(all_hit_data, ignore_index=True) # Make one big dataframe of hits
+    merged_truth = pd.concat(all_truth_data, ignore_index=True) #Make one big dataframe of truths
+
+    # merged_hits.to_csv(f"{output_dir}merged_hits_check.csv", index=False)
+    # merged_truth.to_csv(f"{output_dir}merged_truths_check.csv", index = False)
+
+    # Process merged data
+    print("Linking all hits and truth data:")
+    merged_hits_truth =  LinkHitsTruthData(merged_hits, merged_truth, signal_no="merged")
+    print("Data linked, beginning indexing:")
+    all_bin_indexed_hits =  IndexedData(merged_hits_truth, p_bins, lam_bins, phi_bins, q_mapping, signal_no="merged")
+
+    # Save merged CSV
+    merged_csv_path = os.path.join(output_dir, "all_merged_truths_master.csv")
+    all_bin_indexed_hits.to_csv(merged_csv_path, index=False)
+    print(f"Saved all root file merged hits and Truth data: {merged_csv_path}")
+
+    # Convert to PyTorch dataset
+
+    print("Converting to Torch tensors")
+    DataToTorch(all_bin_indexed_hits, output_dir, signal_no="merged")
+
+    print("Processing complete")
 
 
 #########################################################################################################################################
-##### Define the bins for indexing NOTE: Ideally this will be turned into a TOML self contained dict or something...
+##### Define the bins for indexing NOTE: Ideally this will be turned into a TOML self contained dict or something 
 p_min = 0
 p_max = 65
 num_p_bins = 3
 p_bins = np.linspace(p_min,p_max,num_p_bins+1)
-print(f"pbins: {p_bins}")
 
 lam_min = -1.6
 lam_max = 1.6
@@ -447,77 +514,79 @@ phi_max = np.pi
 num_phi_bins = 30
 phi_bins = np.linspace(phi_min,phi_max,num_phi_bins+1)
 
-q_mapping = {11:0,
-             91:0,
+q_mapping = {11:0,  #Mapping to charges for: positrons, electrons (from michel, bhabha, signal)
+             91:0,  #Positron charge -> 0, Electron charge ->1
              21:0,
              31:0,
              41:0, #See wiki naming conventions for what these are. All positron/electron charge. Photons dropped earlier (sorry photons)
-             3:0,
-             32:1,
-             42:1,
+             3:0,  # Actually, anything bar these types ends up being dropped. This is not very physical.
+             32:1, # But, I needed a quick way to remove all the NaN values as they mess with the tensors. I have highlighted above where all NaN are removed.
+             42:1, # Ideally a more complete dictionary of event possibilites will be created and used. 
              52:1,
              82:1,
-             92:1,}  #Mapping to charges for: positrons, electrons (from michel, bhabha, signal)
-                                          #Positron charge -> 0, Electron charge ->1
-
+             92:1,}  
+                    
 total_bins = num_p_bins * num_lam_bins *num_phi_bins * 2
-print(f"Total number of bins: {total_bins}")
+#print(f"Total number of bins: {total_bins}")
+
 
 ################################## Hits Data Conversion and CSV making ########################################################
+root_dir = "/root/Mu3eProject/RawData/AutomationTest/RootFiles/"
+output_dir = "/root/Mu3eProject/RawData/AutomationTest/Output/"
 
-# Open file for conversion
-signal_no = "signal1_97"
-sort_file = "/root/Mu3eProject/RawData/SortDataFilesV5.3/signal1_97_32652_execution_1_run_num_716703_sort.root" #Not worked out how to get the last bit to manually adjust
-signal_file = uproot.open(sort_file) # Opens the file
+ProcessRootFiles(root_dir, output_dir, p_bins, lam_bins, phi_bins, q_mapping)
 
-
-# Create directory for file saving
-directory = f"/root/Mu3eProject/RawData/TransformerData/{signal_no}" #NOTE: currently this needs to be changed each time
-if not os.path.exists(directory):
-    os.makedirs(directory)
-
-#Compile hits data, truth data, merge, index.
-print("Compiling hits data:")
-print()
-hit_data = CompileHits(signal_file, signal_no)
-print("Hits data saved.")
-print("Compiling truth data:")
-truth_data = CompileTruth(signal_file, signal_no)
-
-print("Merging data:")
-hits_truth_merge = LinkHitsTruthData(hit_data,truth_data, signal_no = signal_no)
-print("Data merged, beginning indexing:")
-
-hits_truth_indexed, hits_truth_filtered = IndexedData(hits_truth_merge,p_bins,lam_bins,phi_bins,q_mapping, signal_no = signal_no)
-print("Data indexed")
+# if __name__ == "__main__":
+#     import argparse
+#     parser = argparse.ArgumentParser(description="Process multiple ROOT files into training data.")
+#     parser.add_argument("root_dir", help="Directory containing ROOT files")
+#     parser.add_argument("output_dir", help="Directory to save processed data")
+#     args = parser.parse_args()
+    
+#     process_root_files(args.root_dir, args.output_dir)
 
 
-############## Turn Hits Data CSVs into Torch tensor files, and csv helper files ########################################
-
-helper_test_file = f"/root/Mu3eProject/RawData/TransformerData/{signal_no}/{signal_no}_hits_truth_indexed.csv"
 
 
-training_data_directory = f"/root/Mu3eProject/RawData/TransformerData/TrainingDataT2/{signal_no}"
-hits_truth_indexed = pd.read_csv(helper_test_file) #For loading in the merged data for the helper file. Need to edit this to make neater.
-                                                # Should not be calling in so many functions to this below
-                                                # Should ideally be working with the panda output of th other code so not re-opening stuff
+#### Below if you want to run for one training file separately. (This is old code before automated)
+# # Open file for conversion
+# signal_no = "signal1_97"
+# sort_file = "/root/Mu3eProject/RawData/SortDataFilesV5.3/signal1_97_32652_execution_1_run_num_716703_sort.root" #Not worked out how to get the last bit to manually adjust
+# signal_file = uproot.open(sort_file) # Opens the file
 
-DataToTorch(hits_truth_indexed,training_data_directory, signal_no = signal_no)
+
+# # Create directory for file saving
+# directory = f"/root/Mu3eProject/RawData/TransformerData/TestUnsorted/{signal_no}/" #NOTE: currently this needs to be changed each time
+# if not os.path.exists(directory):
+#     os.makedirs(directory)
+
+# #Compile hits data, truth data, merge, index.
+# print("Compiling hits data:")
+# print()
+# hit_data = CompileHits(signal_file, signal_no)
+# print("Hits data compiled.")
+# print("Compiling truth data:")
+# truth_data = CompileTruth(signal_file, signal_no)
+# print("Hits data compiled")
+# print("Merging data:")
+# hits_truth_merge = LinkHitsTruthData(hit_data,truth_data, signal_no = signal_no)
+# print("Data merged, beginning indexing:")
+
+# hits_truth_bin_indexed = IndexedData(hits_truth_merge,directory, p_bins,lam_bins,phi_bins,q_mapping, signal_no = signal_no)
+# print("Data indexed, master truth file")
+
+# ############## Turn Hits Data CSVs into Torch tensor files, and csv helper files ########################################
+
+# helper_test_file = f"/root/Mu3eProject/RawData/TransformerData/TestUnsorted/{signal_no}/{signal_no}_all_hits_truth_master.csv"
 
 
-# Load the .pt file
-# data = torch.load("/root/Mu3eProject/RawData/TransformerData/TrainingDataT2/signal1_96/signal1_97_test_helper.pt")
+# training_data_directory = f"/root/Mu3eProject/RawData/TransformerData/TestUnsorted/{signal_no}"
+# hits_truth_indexed = pd.read_csv(helper_test_file) #For loading in the merged data for the helper file. Need to edit this to make neater.
+#                                                 # Should not be calling in so many functions to this below
+#                                                 # Should ideally be working with the panda output of th other code so not re-opening stuff
 
-# print("Tuple length:", len(data))  # This should be the number of frames
+# DataToTorch(hits_truth_indexed,training_data_directory, signal_no = signal_no)
 
-# # Loop over a few frames and inspect the contents
-# for i, frame_tuple in enumerate(data):
-#     # Each frame_tuple should be a tuple of two lists: (hit_ids, event_ids)
-#     hit_ids, event_ids = frame_tuple
-#     print(f"Frame {i}:")
-#     print("  Hit IDs (first 10):", hit_ids[:10])
-#     print("  Event IDs (first 10):", event_ids[:10])
-#     # Stop after a few frames to avoid excessive output
-#     if i >= 5:
-#         break
+
+
 
