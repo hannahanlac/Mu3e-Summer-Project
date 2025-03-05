@@ -1,0 +1,11 @@
+# Ignore PyTorch model files (e.g., .pt or .pth files)
+*.pt
+*.pth
+
+# Ignore CSV files
+*.csv
+
+# Ignore ROOT files
+*.root
+
+
