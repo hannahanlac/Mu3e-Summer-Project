@@ -66,10 +66,10 @@ def TruthInfo(frame_number, mu3eTree):
 #######################################################################################################
 
 # Create directory for file saving
-directory = "/root/Mu3eProject/WorkingVersion/Mu3eProject/DataFilesV5.3/signal1_98_32652" #NOTE: currently this needs to be changed each time
+directory = "/root/Mu3eProject/RawData/TransformerData/signal1_98" #NOTE: currently this needs to be changed each time
 if not os.path.exists(directory):
     os.makedirs(directory)
-file_name = "traj_truth_signal1_98_32652.csv"
+file_name = "signal1_98_32652_truth_data.csv"
 if os.path.exists(file_name): # Deletes old version of file if present
     os.remove(file_name)
 
