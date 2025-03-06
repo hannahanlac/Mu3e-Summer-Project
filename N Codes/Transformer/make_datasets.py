@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import random
 import glob
+from tqdm import tqdm
 
 ###### Use this code to create the data sets for the transformer model. Saves all the files into a data_training folder.
 
@@ -137,7 +138,7 @@ def CompileHits(signal_file, signal_no):
     mchits = signal_file["mu3e_mchits"].arrays(["tid", "hid", "hid_g"])
     print("Building mchits dictionary: Takes around 2 mins")
     mchits_data = mchits_data = {i: {"tid": tid, "hid": hid, "hid_g": hid_g}        # This is necessary as the tid are stored
-                for i, (tid, hid, hid_g) in enumerate(zip(mchits["tid"], mchits["hid"], mchits["hid_g"]))}
+                for i, (tid, hid, hid_g) in tqdm(enumerate(zip(mchits["tid"], mchits["hid"], mchits["hid_g"])), total=len(mchits["tid"]), desc="Building mchits dictionary", ncols=100)}
 
     #total frames and numbers:
     total_frames = len(mu3eTree)
@@ -146,7 +147,7 @@ def CompileHits(signal_file, signal_no):
 
     #Iterate over all frames, collect hit information
     all_hits = [] # List for all the frame hits to be appended to  
-    for frame_number in frame_numbers:
+    for frame_number in tqdm(frame_numbers, desc="Processing frames", ncols=100):
         #print("Frame number:", frame_number) #NOTE: Means lots of print statements. Remove when confident, but good way to track progess
         frame_hits = HitsInFrame(frame_number, mu3eTree,sensor_data_dict, mchits_data)
         all_hits.extend(frame_hits)
@@ -201,7 +202,7 @@ def CompileTruth(signal_file, signal_no):
 
     #Iterate over all frames, collect hit information
     all_hits = [] # List for all the frame hits to be appended to  
-    for frame_number in frame_numbers:
+    for frame_number in tqdm(frame_numbers, desc="Processing frames", ncols=100):
         #print("Frame number:", frame_number)
         frame_hits = TruthInfo(frame_number, mu3eTree)
         all_hits.extend(frame_hits)
@@ -532,8 +533,9 @@ total_bins = num_p_bins * num_lam_bins *num_phi_bins * 2
 
 
 ################################## Hits Data Conversion and CSV making ########################################################
-root_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/RootFiles"
-output_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/OutputTest2"
+
+root_dir = "/users/rk21159/DataFiles/SortFiles"
+output_dir = "/users/rk21159/DataFiles/TransformerDataFiles/TestSet1"
 
 
 ProcessRootFiles(root_dir, output_dir, p_bins, lam_bins, phi_bins, q_mapping)
