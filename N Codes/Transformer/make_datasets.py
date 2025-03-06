@@ -469,7 +469,7 @@ def ProcessRootFiles(root_dir, output_dir, p_bins, lam_bins, phi_bins, q_mapping
 
         all_hit_data.append(hit_data)
         all_truth_data.append(truth_data)
-        frame_offset += hit_data["frameNumber"].max() + 1  # Update offset for next file
+        frame_offset += 9921  # Update offset for next file
 
     print("Merging data from all roots files:")
     merged_hits = pd.concat(all_hit_data, ignore_index=True) # Make one big dataframe of hits
@@ -495,6 +495,7 @@ def ProcessRootFiles(root_dir, output_dir, p_bins, lam_bins, phi_bins, q_mapping
     DataToTorch(all_bin_indexed_hits, output_dir, signal_no="merged")
 
     print("Processing complete")
+
 
 
 #########################################################################################################################################
@@ -531,8 +532,9 @@ total_bins = num_p_bins * num_lam_bins *num_phi_bins * 2
 
 
 ################################## Hits Data Conversion and CSV making ########################################################
-root_dir = "/root/Mu3eProject/RawData/AutomationTest/RootFiles/"
-output_dir = "/root/Mu3eProject/RawData/AutomationTest/Output/"
+root_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/RootFiles"
+output_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/OutputTest2"
+
 
 ProcessRootFiles(root_dir, output_dir, p_bins, lam_bins, phi_bins, q_mapping)
 

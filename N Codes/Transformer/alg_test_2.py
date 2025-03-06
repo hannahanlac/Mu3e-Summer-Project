@@ -5,42 +5,26 @@ import matplotlib.ticker as ticker
 import matplotlib.colors as mcolors
 
 
-def BuildComparisonData(hits_file, hits_mc_file, trirec_file, signal_no):    
-    """Function that takes the relevant data files for hits, their ground truth values, and assigned tracks,   
+def BuildComparisonData(merged_hits_truth_file, trirec_file, signal_no):
+    """Function that takes the relevant data files for hits with their ground truth values, and assigned tracks,   
     and builds a single data file for evaluation.
     Input:
-    - hits_file: File of raw hits data and their tids (the true track they belong to)
-    - hits_mc_file: File of the tid track truth info (from the _sort file mc info: denoted traj_... )
+    - merged_hits_truth_file: File containing raw hits data and its truth params, made using the "compile_datasets.py" code
     - trirec_file: File containing trirec reconstruction data from current algorithm, and its truth parameters. 
     #NOTE: If function changed to work for output of the ML model, will need to change trirec_file to be OUTPUT FILE OF ML MODEL.
     Output:
     - Single file containing Info on no. of unique 4-hit reconstructable tracks, ground truth momenta of tracks, and reconstruction attempt
     """
 
-    #Open the 3 different files and read the csvs
-    hits_data = pd.read_csv(hits_file)
-    hits_traj_mc_data = pd.read_csv(hits_mc_file)
+    #Open the 2 different files and read the csvs
+    merged_hits_truth_data = pd.read_csv(merged_hits_truth_file)
     trirec_data = pd.read_csv(trirec_file)
 
-    # Compute traj_mc track info: total p, pt, and lambda angle.(Needed for hits tid where no trirec reconstruction)
-    hits_traj_mc_data['traj_p'] = np.sqrt(
-        hits_traj_mc_data['traj_px']**2 + 
-        hits_traj_mc_data['traj_py']**2 + 
-        hits_traj_mc_data['traj_pz']**2
-    )
-
-    hits_traj_mc_data['traj_pt'] = np.sqrt(
-        hits_traj_mc_data['traj_px']**2 + 
-        hits_traj_mc_data['traj_py']**2
-    )
-
-    hits_traj_mc_data['traj_lambda'] = np.arctan2(hits_traj_mc_data['traj_pz'], hits_traj_mc_data['traj_pt'])
-
-
+    
     # Count no. of each tid in hit data, remove duplicates, filter out all with <4 hits (our condition 'reconstructable')
-    hits_data['num_hits'] = hits_data.groupby('tid')['tid'].transform('count')
-    unique_tids = hits_data[['tid', 'num_hits']].drop_duplicates()
-    filtered_hits_data = unique_tids[unique_tids['num_hits'] >= 4]
+    merged_hits_truth_data['num_hits'] = merged_hits_truth_data.groupby('tid')['tid'].transform('count')
+    filtered_hits_truth_data = merged_hits_truth_data[merged_hits_truth_data['num_hits'] >= 4].drop_duplicates(subset=['tid'])
+
 
 
     #Count no. of reconstructed tracks for single tid in trirec file. Then remove duplicates (SEE NOTE)
@@ -50,34 +34,22 @@ def BuildComparisonData(hits_file, hits_mc_file, trirec_file, signal_no):
     # For now: I simply keep the duplicates here, then remove them in the function for overall efficiency
 
 
-    # Merge hits_data with hits_traj_mc_data to get momentum information for tids
-    hits_traj_mc_data_unique = hits_traj_mc_data.drop_duplicates(subset=['traj_ID'])
-
-    merged_hits_traj_mc = filtered_hits_data.merge(
-        hits_traj_mc_data_unique[['traj_ID', 'traj_px', 'traj_py', 'traj_pz', 'traj_vx', 'traj_vy', 'traj_vz', 'traj_p', 'traj_pt', 'traj_lambda']],
-        left_on='tid',
-        right_on='traj_ID',
-        how='left'
-    )
-    # Drop all the rows where no traj_mc info present (i.e where a hit tid but does not corr to track NOR truth particle), then drop traj_ID as is tid
-    merged_hits_traj_mc.drop(columns=['traj_ID'], inplace=True)
-
     # Merge with trirec data 
-    all_merged = merged_hits_traj_mc.merge(
+    all_merged = filtered_hits_truth_data.merge(
         trirec_data[['length', 'mc_prime', 'mc measure', 'mc_tid', 'num_recon_tracks', 'mc_vx', 'mc_vy', 'mc_vz', 'mc_p','mc_pt', 'mc_lam']],  # Keep only relevant columns
         left_on='tid',
         right_on='mc_tid',
         how='left'  # Keeps all rows from merged_df, fills missing trirec info with NaN
     )
 
-    df_merged_truths = all_merged.dropna(subset = ['traj_px'])
+    #df_merged_truths = all_merged.dropna(subset = ['traj_px'])
 
     # # Print results
     # print("Final dataframe with merged info:")
     # print(df_merged_truths.head())  # Print first few rows to check
 
-    file_path = f"/root/Mu3eProject/RawData/ComparisonData/comparison_data_{signal_no}.csv"
-    df_merged_truths.to_csv(file_path, index=False)
+    file_path = f"/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TrirecFiles/Outputs/merged_comparison_t2.csv"
+    all_merged.to_csv(file_path, index=False)
     return 
 
 #Efficiency measures
@@ -428,8 +400,8 @@ def FakeRateLambdaMomentumPlot(data_file, min_lam, max_lam, lam_res, min_p, max_
     #data_file = data_file.drop_duplicates(subset='tid', keep="first") NOT THIS! Remove: We want to keep the duplicates for analysing
     #data_file = data_file.sort_values(by='abs_true_track', ascending=False) No need for this as above
 
-    file_path = "/root/Mu3eProject/RawData/ComparisonData/Fake_rate_test_1.csv"
-    data_file.to_csv(file_path, index=False)
+    # file_path = "/root/Mu3eProject/RawData/ComparisonData/Fake_rate_test_1.csv"
+    # data_file.to_csv(file_path, index=False)
 
     print("no.unique tids:", data_file['tid'].nunique())
     print("no.entries:",len(data_file))
@@ -664,31 +636,31 @@ def RatioLongToShortTracks (data_file, min_lam, max_lam, lam_res, min_p, max_p, 
 
 
 # Define the files for building your data, build dataset
-hits_data = "/root/Mu3eProject/RawData/TransformerData/signal1_95/signal1_95_hits_data.csv"
-truth_data = "/root/Mu3eProject/RawData/TransformerData/signal1_95/signal1_95_truth_data.csv"
-trirec_file = "/root/Mu3eProject/RawData/TrirecFiles/signal1_95_32652/trirec_data_signal1_95_32652_frames.csv"
-#BuildComparisonData(hits_data, truth_data, trirec_file, signal_no = 'signal1_95')
+# merged_hits_truth_data = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/RootFiles/Output/all_merged_truths_master.csv" #Should really be an eval set
+# trirec_file = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TrirecFiles/Outputs/merged_trirec_data_ALL.csv"
+
+# BuildComparisonData(merged_hits_truth_data, trirec_file, signal_no = 'signal1_95')
 
 
 #Test efficiency
-comparison_file = "/root/Mu3eProject/RawData/ComparisonData/comparison_data_signal1_98.csv"
+comparison_file = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TrirecFiles/Outputs/merged_comparison_t2.csv"
 df_comparison = pd.read_csv(comparison_file)
 
 
-# EfficiencyTrackLengthPlot(df_comparison, truth_measure='absolute')
-#TotalEfficiencyMeasure(df_comparison, truth_measure = 'absolute', hit_count = 4)
-# EfficiencyMomentumPlot(df_comparison, min_momentum = 0, max_momentum = 100, momentum_res = 10, p_type = 'traj_p')
+EfficiencyTrackLengthPlot(df_comparison, truth_measure='absolute')
+TotalEfficiencyMeasure(df_comparison, truth_measure = 'absolute', hit_count = 4)
+EfficiencyMomentumPlot(df_comparison, min_momentum = 0, max_momentum = 100, momentum_res = 10, p_type = 'traj_p')
 
-#EfficiencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits = 4, truth_measure = 'absolute')
+EfficiencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits = 4, truth_measure = 'absolute')
 EfficiencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_p', num_hits = 4, truth_measure = 'all')
 
-# RatioLongToShortTracks(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits = 4)
+RatioLongToShortTracks(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits = 4)
 
-# TrackFrequencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 2, p_type = 'traj_p', num_hits = 4, truth_measure = 'absolute')
+TrackFrequencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 2, p_type = 'traj_p', num_hits = 4, truth_measure = 'absolute')
 
 FakeRateLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 2, p_type = 'traj_p', num_hits = 4, fake_measure = 'harsh') #Harsh = non absolute true = fake, lenient = mc_prime:0 AND mc measure:0
 
-#TotalFakeRateMeasure(df_comparison, fake_measure = 'lenient', num_hits = 4 )
+TotalFakeRateMeasure(df_comparison, fake_measure = 'lenient', num_hits = 4 )
 
-#FakeRateTrackLengthPlot(df_comparison, fake_measure = 'lenient', num_hits = 4)
+FakeRateTrackLengthPlot(df_comparison, fake_measure = 'lenient', num_hits = 4)
 
