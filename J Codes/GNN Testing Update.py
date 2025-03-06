@@ -5,6 +5,7 @@ from tensorflow import keras
 from tensorflow.keras.layers import BatchNormalization, Dense, Dropout
 from sklearn.utils import shuffle
 import os
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -281,3 +282,109 @@ print("Predictions stored in memory. Ready for post-processing!")
 print(f"Batch 0 Predictions: {batch_predictions[0]}")
 print(f"Batch 1 Predictions: {batch_predictions[1]}")
 print(f"Batch 2 Predictions: {batch_predictions[2]}")
+
+
+
+def construct_tracks(batch_graphs, batch_predictions, batch_hitID_dicts, min_track_size=4):
+    """
+    Constructs tracks from batch predictions, ensuring each track has one hit per layer.
+    
+    Args:
+        batch_graphs (list): List of NetworkX graphs for each batch.
+        batch_predictions (list): List of dictionaries containing edge scores.
+        batch_hitID_dicts (list): List of hit_ID dictionaries per batch.
+        min_track_size (int): Minimum number of hits in a valid track.
+
+    Returns:
+        batch_tracks (list): List of tracks for each batch.
+    """
+    batch_tracks = []
+
+    for batch_idx, pred in enumerate(batch_predictions):
+        edges, scores = pred["edges"], pred["scores"]
+        G = batch_graphs[batch_idx]  # Get the corresponding graph
+        hitID_dict = batch_hitID_dicts[batch_idx]  # Get the hit_ID dictionary
+        tracks = []  # List to store tracks
+
+        # Sort edges by descending score
+        scored_edges = sorted(zip(edges, scores), key=lambda x: x[1], reverse=True)
+
+        for (u, v), score in scored_edges:
+            if score < 0.5:  # Threshold for valid edges (tune as needed)
+                continue
+
+            # DEBUG: Check if nodes exist in G before accessing them
+            if u not in G.nodes or v not in G.nodes:
+                print(f"Warning: Node {u} or {v} not found in batch {batch_idx}. Skipping this edge.")
+                continue  # Skip invalid edges
+
+            # Get layers of the two nodes
+            layer_u = G.nodes[u]["layer"]
+            layer_v = G.nodes[v]["layer"]
+
+            # Find an existing track that can include this edge
+            added = False
+            for track in tracks:
+                track_layers = {G.nodes[n]["layer"] for n in track["nodes"]}
+                if layer_u not in track_layers or layer_v not in track_layers:
+                    track["nodes"].update([u, v])
+                    track["hit_IDs"].update([hitID_dict[u], hitID_dict[v]])
+                    added = True
+                    break
+
+            # If no existing track can accommodate this edge, create a new track
+            if not added:
+                tracks.append({"nodes": set([u, v]), "hit_IDs": set([hitID_dict[u], hitID_dict[v]])})
+
+        # Filter tracks to ensure they have at least one hit per layer and min size
+        valid_tracks = [track for track in tracks if len(track["nodes"]) >= min_track_size]
+
+        batch_tracks.append(valid_tracks)
+
+        print(f"Batch {batch_idx}: {len(valid_tracks)} valid tracks found")
+
+    return batch_tracks
+
+
+# Run the function to extract valid tracks
+batch_tracks = construct_tracks(batch_graphs, batch_predictions, batch_hitID_dicts)
+
+
+
+def save_tracks(batch_tracks, output_dir="output"):
+    """
+    Saves track data to CSV and Parquet format.
+
+    Args:
+        batch_tracks (list): List of tracks for each batch.
+        output_dir (str): Directory to save output files.
+    """
+
+    all_tracks = []
+
+    for batch_idx, tracks in enumerate(batch_tracks):
+        for track_idx, track in enumerate(tracks):
+            all_tracks.append({
+                "batch": batch_idx,
+                "track_id": track_idx,
+                "hit_IDs": list(track["hit_IDs"]),
+                "num_hits": len(track["hit_IDs"]),
+            })
+
+    # Convert to DataFrame
+    df = pd.DataFrame(all_tracks)
+
+    # Save to CSV
+    csv_path = "GithubRepoLinux/ProcessedData/signal1_96_32652/reconstrcted_tracks/predicted_tracks.csv"
+    df.to_csv(csv_path, index=False)
+
+    # Save to Parquet
+    parquet_path = "GithubRepoLinux/ProcessedData/signal1_96_32652/reconstrcted_tracks/predicted_tracks.parquet"
+    table = pa.Table.from_pandas(df)
+    pq.write_table(table, parquet_path)
+
+    print(f"Tracks saved to {csv_path} and {parquet_path}")
+
+
+# Save the tracks
+save_tracks(batch_tracks)
