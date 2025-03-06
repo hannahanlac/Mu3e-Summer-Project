@@ -13,6 +13,9 @@ from scipy.spatial import cKDTree
 from mpl_toolkits.mplot3d import Axes3D
 from tqdm import tqdm
 
+model_path = "trained_gnn_model2"  # Path to saved model
+model = tf.keras.models.load_model(model_path)
+
 def load_data(file_path):
     table = pq.read_table(file_path)  # Load Parquet file as an Arrow table
     print(table)
@@ -36,7 +39,7 @@ def load_data(file_path):
     return awk_array
 
 
-file_path = 'ProcessedData/signal1_96_32652/train_data/train_data.parquet'
+file_path = 'ProcessedData/signal1_96_32652/test_data/test_data.parquet'
 awk_data = load_data(file_path)
 
 
@@ -57,7 +60,7 @@ def batch_data(awk_array, frames_per_batch=1):
 
         batches.append(batch)
 
-    print(batches[0][72]['layer_array']) 
+    print(batches[0][13]['layer_array']) 
     # Prints the value associated with layer_array for hit indexed number 72 in frame 0 / batch 0
 
     return batches
@@ -101,7 +104,6 @@ def build_graph(batch, k_neighbours=5):
     G = nx.Graph()  # Initialize an empty graph
 
     hitID_dict = {}
-    tid_dict = {} # Create separate tid dictionary to store so can't access in training (i.e., not node feature)
 
     # Add nodes
     for i, (x, y, z) in enumerate(coords):
@@ -113,10 +115,8 @@ def build_graph(batch, k_neighbours=5):
             G.add_node(i, gx=x, gy=y, gz=z, 
             layer=batch['layer_array'][i], 
             station=batch['station_array'][i])
-            # Node has features hit_ID and tid_array (need to ensure tid not accessible in training/testing)
         
-            # Store tid separately for later evaluation (but NOT as part of the graph)
-            tid_dict[i] = batch['tid_array'][i]
+            # Store hit_ID separately for later evaluation (but not as part of the graph)
             hitID_dict[i] = batch['hit_ID'][i]  
 
         except KeyError as e:
@@ -177,61 +177,107 @@ def build_graph(batch, k_neighbours=5):
 
     print(f"Final graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
-    return G
+    return G, hitID_dict
 
-batch_graphs = [build_graph(batch) for batch in batches]
+batch_graphs = []
+batch_hitID_dicts = []
+
+
+for batch in batches:
+    G, hitID_dict = build_graph(batch)  # Unpack both returned values
+    batch_graphs.append(G)  # Store the graph
+    batch_hitID_dicts.append(hitID_dict) # Store hitID_dict
+
 
 # Print number of edges after graph construction
 for i, G in enumerate(batch_graphs):
     print(f"Batch {i}: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
-'''
-def plot_graph2D(G):
-    pos = {i: (G.nodes[i]['gx'], G.nodes[i]['gy']) for i in G.nodes}  # 2D projection
-    plt.figure(figsize=(10, 8))
-    nx.draw(G, pos, node_size=20, edge_color='gray', alpha=0.5)
-    plt.xlabel('gx')
-    plt.ylabel('gy')
-    plt.title('Frame 0 Hit Graph')
-    plt.show()
 
-for i in range(min(3, len(batch_graphs))):
-    plot_graph2D(batch_graphs[i])
-
-def plot_graph3D(G):
+def extract_edge_features(G):
+    """
+    Extracts edge features directly from networkx graph.
     
-    """Plots a 3D representation of the hit graph.
-
     Args:
-        G: A NetworkX graph where nodes have 3D positions (gx, gy, gz)."""
+        G (networkx.Graph): The input graph.
 
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d')
+    Returns:
+        edge_features (np.ndarray): Feature matrix (E, 2C + C)
+        edge_labels (np.ndarray): Ground truth labels (E, 1)
+        edge_list (list): List of edges [(u, v), ...]
+    """
+    edge_features = []
+    edge_labels = []
+    edge_list = []
 
-    # Extract node positions
-    pos = {i: (G.nodes[i]['gx'], G.nodes[i]['gy'], G.nodes[i]['gz']) for i in G.nodes}
+    for u, v in G.edges():
+        """for node, attrs in G.nodes(data=True):
+            print(node, attrs)"""  # Check what attributes are actually present
 
-    # Plot nodes
-    xs, ys, zs = zip(*pos.values())  # Unpack coordinates
-    ax.scatter(xs, ys, zs, c='blue', marker='o', s=10, alpha=0.6, label="Hits")
+        if u not in G.nodes or v not in G.nodes:
+            print(f"Warning: Edge ({u}, {v}) contains missing nodes")
+            continue  # Skip missing nodes
 
-    # Plot edges
-    for edge in G.edges:
-        x_vals = [pos[edge[0]][0], pos[edge[1]][0]]
-        y_vals = [pos[edge[0]][1], pos[edge[1]][1]]
-        z_vals = [pos[edge[0]][2], pos[edge[1]][2]]
-        ax.plot(x_vals, y_vals, z_vals, c='gray', alpha=0.4)  # Draw edge
+        if 'gx' not in G.nodes[u] or 'gx' not in G.nodes[v]:
+            print(f"Warning: Missing 'gx' attribute in nodes {u} or {v}")
+            continue  # Skip edges where node attributes are missing
 
-    # Labels and styling
-    ax.set_xlabel('gx')
-    ax.set_ylabel('gy')
-    ax.set_zlabel('gz')
-    ax.set_title("Batch 0 3D Hit Graph Visualization")
 
-    plt.legend()
-    plt.show()
 
-for i in range(min(3, len(batch_graphs))):
-    plot_graph3D(batch_graphs[i])
-'''
+        # Get node features (assuming stored as attributes)
+        source_feats = np.array([G.nodes[u]['gx'], G.nodes[u]['gy'], G.nodes[u]['gz']])
+        target_feats = np.array([G.nodes[v]['gx'], G.nodes[v]['gy'], G.nodes[v]['gz']])
+        
+        # Compute feature difference
+        feature_diff = source_feats - target_feats
+        
+        # Concatenate to form edge feature vector
+        edge_feat = np.concatenate([source_feats, target_feats, feature_diff])  # (2C + C) 
+        
+        # Store results
+        edge_features.append(edge_feat)
+        edge_list.append((u, v))
 
+    return np.array(edge_features), edge_list
+
+
+#########
+
+
+# Store predictions in memory
+batch_predictions = []
+
+track_counter = 0  # Global counter for tracks
+
+# Process batches and make predictions
+with tqdm(total=len(batch_graphs), desc="Predicting Edges", unit="batch") as pbar:
+    for batch_idx, batch in enumerate(batch_graphs):
+
+        if len(batch_graphs[batch_idx].edges) == 0:
+            pbar.update(1)
+            continue  
+
+        edge_feats, edge_list = extract_edge_features(batch_graphs[batch_idx])
+        if len(edge_feats) == 0:
+            pbar.update(1)
+            continue  
+
+        edge_feats_tensor = tf.convert_to_tensor(edge_feats, dtype=tf.float32)
+
+        predictions = model.predict(edge_feats_tensor, verbose=0)
+
+        # Store predictions in memory
+        batch_predictions.append({
+            "batch_idx": batch_idx,
+            "edges": edge_list,
+            "scores": predictions.flatten().tolist()
+        })
+
+        pbar.update(1)
+
+print("Predictions stored in memory. Ready for post-processing!")
+
+# Example: Access predictions for the first batch
+print(f"Batch 0 Predictions: {batch_predictions[0]}")
+print(f"Batch 1 Predictions: {batch_predictions[1]}")
+print(f"Batch 2 Predictions: {batch_predictions[2]}")
