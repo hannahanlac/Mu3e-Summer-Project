@@ -636,10 +636,10 @@ def RatioLongToShortTracks (data_file, min_lam, max_lam, lam_res, min_p, max_p, 
 
 
 # Define the files for building your data, build dataset
-# merged_hits_truth_data = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/RootFiles/Output/all_merged_truths_master.csv" #Should really be an eval set
-# trirec_file = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TrirecFiles/Outputs/merged_trirec_data_ALL.csv"
+merged_hits_truth_data = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/RootFiles/Output/all_merged_truths_master.csv" #Should really be an eval set
+trirec_file = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TrirecFiles/Outputs/merged_trirec_data_ALL.csv"
 
-# BuildComparisonData(merged_hits_truth_data, trirec_file, signal_no = 'signal1_95')
+BuildComparisonData(merged_hits_truth_data, trirec_file, signal_no = 'signal1_95')
 
 
 #Test efficiency
