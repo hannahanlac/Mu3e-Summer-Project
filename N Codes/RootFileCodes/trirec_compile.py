@@ -2,6 +2,27 @@ import uproot
 import awkward as ak
 import pandas as pd
 import os
+import glob
+from tqdm import tqdm
+import random
+from torch.utils.data import Dataset
+
+class FrameDataset(Dataset):
+    def __init__(self, data):
+        # Load your CSV data
+        self.df = data
+        # Group by the frameNumber column
+        self.grouped = self.df.groupby("frameNumber")
+        # Get a sorted list of frame numbers
+        self.frames = sorted(self.grouped.groups.keys())
+    
+    def __len__(self):
+        return len(self.frames)
+    
+    def __getitem__(self, idx):
+        frame_num = self.frames[idx]
+        # Get all rows for this frame
+        frame_data = self.grouped.get_group(frame_num)
 
 def FrameTracks(frame_number, frames_tree):
     """Extract info on tracks and the corresponding mc info in a given frame of the trirec file.
@@ -73,38 +94,103 @@ def FrameTracks(frame_number, frames_tree):
 
     return frame_hits
 
+def CompileTrirec(trirec_file):
+    """"Function that iterates over a whole trirec file to compile the tracks"""
+    frames_tree = trirec_file['frames'].arrays()  # Load the frames tree as an awkward array
+    total_frames = len(frames_tree)
+    print('Total number of frames in file:', total_frames)
+    frame_numbers = list(range(0, total_frames))
 
-# Create directory for file saving
-directory = "/root/Mu3eProject/RawData/TrirecFiles/signal1_95_32652"
-if not os.path.exists(directory):
-    os.makedirs(directory)
+    # Iterate over all frames and collect track information
+    all_hits = []
+    for frame_number in tqdm(frame_numbers,desc="processing frames", ncols=100):
+        frame_hits = FrameTracks(frame_number, frames_tree)
+        all_hits.extend(frame_hits)
 
-file_name = "trirec_data_signal1_95_32652_frames.csv"
-file_path = os.path.join(directory, file_name)
+    # Convert to Pandas DataFrame
+    all_frames_data = pd.DataFrame(all_hits)
+    
+    return all_frames_data
 
-if os.path.exists(file_path):  # Deletes old version of file if present
-    os.remove(file_path)
+def ProcessTrirecFiles(root_dir, output_dir):
+    """Process all ROOT files in a given directory and generate training data."""
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    all_trirec_data = []
+    frame_offset = 0  # Keep track of frame numbers across files
 
-# Load the ROOT file and extract the frames tree
-root_file_path = "/root/Mu3eProject/RawData/TrirecFiles/RawFiles/signal1_95_32652_execution_1_run_num_67021_trirec.root"
-print("Processing file:", root_file_path)
+    root_files = glob.glob(os.path.join(root_dir, "*.root"))
 
-trirec_file = uproot.open(root_file_path)  # Open the ROOT file
-frames_tree = trirec_file['frames'].arrays()  # Load the frames tree as an awkward array
+    print(f"Found {len(root_files)} ROOT files in {root_dir}")
+    print(f"Found {len(root_files)} ROOT files: {root_files}")
 
-total_frames = len(frames_tree)
-print('Total number of frames in file:', total_frames)
+    for root_file in root_files:
+        # Extract the first two parts
+        signal_no = "_".join(root_file.split("_")[:2])
+        print(f"Processing {signal_no}")
+        signal_file = uproot.open(root_file)
+        print()
 
-# Iterate over all frames and collect track information
-all_hits = []
-for frame_number in range(total_frames):
-    print(f"Frame {frame_number}")
-    frame_hits = FrameTracks(frame_number, frames_tree)
-    all_hits.extend(frame_hits)
+        # Compile hits and truth data
+        print(f"Compiling trirec data for {signal_no}")
+        trirec_data =  CompileTrirec(signal_file)
 
-# Convert to Pandas DataFrame and save to CSV
-all_frames_data = pd.DataFrame(all_hits)
-all_frames_data.to_csv(file_path, index=False)
+
+        # Adjust frame numbers to avoid duplicates
+        trirec_data["frameNumber"] += frame_offset
+
+        all_trirec_data.append(trirec_data)
+        frame_offset += 9921  # Update offset for next file
+
+    print("Merging data from all roots files:")
+    merged_trirec = pd.concat(all_trirec_data, ignore_index=True) # Make one big dataframe of hits
+
+    merged_trirec.to_csv(f"{output_dir}merged_trirec_data_ALL.csv", index=False)
+    print("Saved all merged trirec data ")
+
+    return merged_trirec 
+
+# Bit useless
+def TestTrirecSave (merged_trirec, train_ratio=0.8, val_ratio=0.1, test_ratio=0.1, seed=32):
+    """Function for saving specifically the frames used for testing the Transformer, to allow fair comparison"""
+
+    dataset = FrameDataset(merged_trirec)
+    all_frames = dataset.frames
+    num_frames = len(all_frames)
+
+    # Shuffle frame numbers
+    random.seed(seed)
+    frames_shuffled = all_frames.copy()
+    random.shuffle(frames_shuffled)
+
+    # Compute indices for splits
+    train_end = int(train_ratio * num_frames)
+    val_end = train_end + int(val_ratio * num_frames)
+    train_frames = set(frames_shuffled[:train_end])
+    val_frames = set(frames_shuffled[train_end:val_end])
+    test_frames = set(frames_shuffled[val_end:])
+
+    test_frames = merged_trirec[merged_trirec["frameNumber"].isin(test_frames)]
+
+    # Save test truths CSV
+    test_csv_path = os.path.join(output_dir, "merged_test_truths_shuffled.csv")
+    test_frames.to_csv(test_csv_path, index=False)
+    print(f"Saved test helper CSV: {test_csv_path}")
+
+### For making comparison data for
+
+
+
+
+trirec_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TrirecFiles"
+output_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/OutputTest2/"
+
+merged_trirec = ProcessTrirecFiles(trirec_dir, output_dir)
+
+# TestTrirecSave(merged_trirec) NOTE: This created so shuffle in same was as test sets for transf. But as use eval sets, this not needed
+
+
 
 
 
