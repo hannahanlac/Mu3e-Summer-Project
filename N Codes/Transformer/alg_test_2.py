@@ -22,10 +22,13 @@ def BuildComparisonData(merged_hits_truth_file, trirec_file, signal_no):
 
     
     # Count no. of each tid in hit data, remove duplicates, filter out all with <4 hits (our condition 'reconstructable')
-    merged_hits_truth_data['num_hits'] = merged_hits_truth_data.groupby('tid')['tid'].transform('count')
-    filtered_hits_truth_data = merged_hits_truth_data[merged_hits_truth_data['num_hits'] >= 4].drop_duplicates(subset=['tid'])
-
-
+    merged_hits_truth_data_filtered_columns = merged_hits_truth_data[[
+    "frameNumber","tid", "traj_type", "traj_px", "traj_py", "traj_pz", 
+    "traj_p", "traj_pt", "traj_lambda", "traj_phi", "p_bin", 
+    "lambda_bin", "phi_bin", "type_bin", "bin_index"]].copy()
+    merged_hits_truth_data_filtered_columns['num_hits'] = merged_hits_truth_data_filtered_columns.groupby('tid')['tid'].transform('count')
+    filtered_hits_truth_data = merged_hits_truth_data_filtered_columns[merged_hits_truth_data_filtered_columns['num_hits'] >= 4].drop_duplicates(subset=['tid'])
+    
 
     #Count no. of reconstructed tracks for single tid in trirec file. Then remove duplicates (SEE NOTE)
     trirec_data['num_recon_tracks'] = trirec_data.groupby('mc_tid')['mc_tid'].transform('count')
@@ -42,13 +45,13 @@ def BuildComparisonData(merged_hits_truth_file, trirec_file, signal_no):
         how='left'  # Keeps all rows from merged_df, fills missing trirec info with NaN
     )
 
-    #df_merged_truths = all_merged.dropna(subset = ['traj_px'])
+
 
     # # Print results
     # print("Final dataframe with merged info:")
     # print(df_merged_truths.head())  # Print first few rows to check
 
-    file_path = f"/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TrirecFiles/Outputs/merged_comparison_t2.csv"
+    file_path = f"/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/OutputTest2/merged_comparison_test_fix.csv"
     all_merged.to_csv(file_path, index=False)
     return 
 
@@ -636,14 +639,14 @@ def RatioLongToShortTracks (data_file, min_lam, max_lam, lam_res, min_p, max_p, 
 
 
 # Define the files for building your data, build dataset
-# merged_hits_truth_data = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/RootFiles/Output/all_merged_truths_master.csv" #Should really be an eval set
-# trirec_file = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TrirecFiles/Outputs/merged_trirec_data_ALL.csv"
+# merged_hits_truth_data = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/OutputTest2/all_merged_truths_master.csv" #Should really be an eval set
+# trirec_file = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/OutputTest2/merged_trirec_data_ALL.csv"
 
 # BuildComparisonData(merged_hits_truth_data, trirec_file, signal_no = 'signal1_95')
 
 
 #Test efficiency
-comparison_file = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TrirecFiles/Outputs/merged_comparison_t2.csv"
+comparison_file = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/OutputTest2/merged_comparison_test_fix.csv"
 df_comparison = pd.read_csv(comparison_file)
 
 
@@ -660,7 +663,7 @@ TrackFrequencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, la
 
 FakeRateLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 2, p_type = 'traj_p', num_hits = 4, fake_measure = 'harsh') #Harsh = non absolute true = fake, lenient = mc_prime:0 AND mc measure:0
 
-TotalFakeRateMeasure(df_comparison, fake_measure = 'lenient', num_hits = 4 )
+TotalFakeRateMeasure(df_comparison, fake_measure = 'harsh', num_hits = 4 )
 
-FakeRateTrackLengthPlot(df_comparison, fake_measure = 'lenient', num_hits = 4)
+FakeRateTrackLengthPlot(df_comparison, fake_measure = 'harsh', num_hits = 4)
 

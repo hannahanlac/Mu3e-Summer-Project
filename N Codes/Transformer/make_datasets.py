@@ -533,7 +533,7 @@ total_bins = num_p_bins * num_lam_bins *num_phi_bins * 2
 
 ################################## Hits Data Conversion and CSV making ########################################################
 root_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/RootFiles"
-output_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/OutputTest2"
+output_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/OutputTest3"
 
 
 ProcessRootFiles(root_dir, output_dir, p_bins, lam_bins, phi_bins, q_mapping)
