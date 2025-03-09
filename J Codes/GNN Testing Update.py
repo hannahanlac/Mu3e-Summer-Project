@@ -40,7 +40,7 @@ def load_data(file_path):
     return awk_array
 
 
-file_path = 'GithubRepoLinux/ProcessedData/signal1_96_32652/test_data/test_data.parquet'
+file_path = 'ProcessedData/signal1_96_32652/test_data/test_data.parquet'
 awk_data = load_data(file_path)
 
 
@@ -425,11 +425,11 @@ def save_tracks(batch_tracks, output_dir="output"):
     df = pd.DataFrame(all_tracks)
 
     # Save to CSV
-    csv_path = "GithubRepoLinux/ProcessedData/signal1_96_32652/reconstrcted_tracks/predicted_tracks.csv"
+    csv_path = "ProcessedData/signal1_96_32652/reconstrcted_tracks/predicted_tracks.csv"
     df.to_csv(csv_path, index=False)
 
     # Save to Parquet
-    parquet_path = "GithubRepoLinux/ProcessedData/signal1_96_32652/reconstrcted_tracks/predicted_tracks.parquet"
+    parquet_path = "ProcessedData/signal1_96_32652/reconstrcted_tracks/predicted_tracks.parquet"
     table = pa.Table.from_pandas(df)
     pq.write_table(table, parquet_path)
 

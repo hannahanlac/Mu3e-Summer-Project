@@ -322,7 +322,7 @@ def ProcessRootFiles(root_dir, output_dir):
 ################################## Hits Data Conversion and CSV making ########################################################
 
 root_dir = "Simulation Data/nICK'S Special fOlder"
-output_dir = "GithubRepoLinux/ProcessedData/signal1_96_32652/csv"
+output_dir = "ProcessedData/signal1_96_32652/csv"
 
 
 

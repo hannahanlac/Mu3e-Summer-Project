@@ -37,7 +37,7 @@ def load_data(file_path):
     return awk_array
 
 
-file_path = 'GithubRepoLinux/ProcessedData/signal1_96_32652/train_data/train_data.parquet'
+file_path = 'ProcessedData/signal1_96_32652/train_data/train_data.parquet'
 awk_data = load_data(file_path)
 
 

@@ -160,8 +160,8 @@ def Normalization(train_data,test_data):
 
 #Finally making the dataset
 def MakeDataset():
-    train_dir = "GithubRepoLinux/ProcessedData/signal1_96_32652/train_data"
-    test_dir = "Github RepoLinux/ProcessedData/signal1_96_32652/test_data"
+    train_dir = "ProcessedData/signal1_96_32652/train_data"
+    test_dir = "ProcessedData/signal1_96_32652/test_data"
 
     if not os.path.exists(train_dir):
         os.makedirs(train_dir)
@@ -196,7 +196,7 @@ def MakeDataset():
     #Dictionary of padding values for each parameter
     #can change these padding values for physical/practical reasons as wish
 
-    signal_dir = "GithubRepoLinux/ProcessedData/signal1_96_32652/csv/new_hits_data_signal1_96_32652.csv"
+    signal_dir = "ProcessedData/signal1_96_32652/csv/new_hits_data_signal1_96_32652.csv"
     split_ratio = 0.75
 
 
