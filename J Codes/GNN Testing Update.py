@@ -14,7 +14,7 @@ from scipy.spatial import cKDTree
 from mpl_toolkits.mplot3d import Axes3D
 from tqdm import tqdm
 
-model_path = "trained_gnn_model2"  # Path to saved model
+model_path = "trained_gnn_model3"  # Path to saved model
 model = tf.keras.models.load_model(model_path)
 
 def load_data(file_path):
@@ -30,7 +30,7 @@ def load_data(file_path):
     print("Frames from index 5000-5020:", ak.to_numpy(awk_array['frame_array'])[5000:5020])
 
     print("First few hit IDs:", ak.to_numpy(awk_array['hit_ID'])[:10])
-    print("First few pixelx values", ak.to_numpy(awk_array['pixelx_array'])[:10])
+    print("First few traj_pt values", ak.to_numpy(awk_array['traj_pt'])[:10])
     
     frame_values = ak.to_numpy(awk_array['frame_array'])  # Convert to NumPy
     print("Are frames sorted?", np.all(frame_values[:-1] <= frame_values[1:]))  # Check if sorted
@@ -40,7 +40,7 @@ def load_data(file_path):
     return awk_array
 
 
-file_path = 'ProcessedData/signal1_96_32652/test_data/test_data.parquet'
+file_path = 'GithubRepoLinux/ProcessedData/signal1_96_32652/test_data/test_data.parquet'
 awk_data = load_data(file_path)
 
 
@@ -105,6 +105,11 @@ def build_graph(batch, k_neighbours=5):
     G = nx.Graph()  # Initialize an empty graph
 
     hitID_dict = {}
+    tid_dict = {}
+    traj_p_dict = {}
+    traj_pt_dict = {}
+    traj_lambda_dict = {}
+    traj_phi_dict = {}
 
     # Add nodes
     for i, (x, y, z) in enumerate(coords):
@@ -118,7 +123,12 @@ def build_graph(batch, k_neighbours=5):
             station=batch['station_array'][i])
         
             # Store hit_ID separately for later evaluation (but not as part of the graph)
-            hitID_dict[i] = batch['hit_ID'][i]  
+            hitID_dict[i] = batch['hit_ID'][i]
+            tid_dict[i] = batch['tid_array'][i]
+            traj_p_dict[i] = batch['traj_p'][i]
+            traj_pt_dict[i] = batch['traj_pt'][i]
+            traj_lambda_dict[i] = batch['traj_lambda'][i]
+            traj_phi_dict[i] = batch['traj_phi'][i]
 
         except KeyError as e:
             print(f"Missing key when adding node {i}: {e}")
@@ -178,16 +188,26 @@ def build_graph(batch, k_neighbours=5):
 
     print(f"Final graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
-    return G, hitID_dict
+    return G, hitID_dict, tid_dict
 
 batch_graphs = []
 batch_hitID_dicts = []
+batch_tid_dicts = []
+batch_p_dicts = []
+batch_pt_dicts = []
+batch_lambda_dicts = []
+batch_phi_dicts = []
 
 
 for batch in batches:
-    G, hitID_dict = build_graph(batch)  # Unpack both returned values
+    G, hitID_dict, tid_dict = build_graph(batch)  # Unpack both returned values
     batch_graphs.append(G)  # Store the graph
     batch_hitID_dicts.append(hitID_dict) # Store hitID_dict
+    batch_tid_dicts.append(tid_dict)
+    batch_p_dicts.append(traj_p_dict)
+    batch_pt_dicts.append(traj_pt_dict)
+    batch_lambda_dicts.append(traj_lambda_dict)
+    batch_phi_dicts.append(traj_phi_dict)
 
 
 # Print number of edges after graph construction
@@ -285,7 +305,7 @@ print(f"Batch 2 Predictions: {batch_predictions[2]}")
 
 
 
-def construct_tracks(batch_graphs, batch_predictions, batch_hitID_dicts, min_track_size=4):
+def construct_tracks(batch_graphs, batch_predictions, batch_hitID_dicts, batch_tid_dicts, min_track_size=4):
     """
     Constructs tracks from batch predictions, ensuring each track has one hit per layer.
     
@@ -304,13 +324,18 @@ def construct_tracks(batch_graphs, batch_predictions, batch_hitID_dicts, min_tra
         edges, scores = pred["edges"], pred["scores"]
         G = batch_graphs[batch_idx]  # Get the corresponding graph
         hitID_dict = batch_hitID_dicts[batch_idx]  # Get the hit_ID dictionary
+        tid_dict = batch_tid_dicts[batch_idx]
+        traj_p_dict = batch_p_dicts[batch_idx]
+        traj_pt_dict = batch_pt_dicts[batch_idx]
+        traj_lambda_dict = batch_lambda_dicts[batch_idx]
+        traj_phi_dict = batch_phi_dicts[batch_idx]
         tracks = []  # List to store tracks
 
         # Sort edges by descending score
         scored_edges = sorted(zip(edges, scores), key=lambda x: x[1], reverse=True)
 
         for (u, v), score in scored_edges:
-            if score < 0.5:  # Threshold for valid edges (tune as needed)
+            if score < 0.7:  # Threshold for valid edges (tune as needed)
                 continue
 
             # DEBUG: Check if nodes exist in G before accessing them
@@ -327,14 +352,29 @@ def construct_tracks(batch_graphs, batch_predictions, batch_hitID_dicts, min_tra
             for track in tracks:
                 track_layers = {G.nodes[n]["layer"] for n in track["nodes"]}
                 if layer_u not in track_layers or layer_v not in track_layers:
-                    track["nodes"].update([u, v])
-                    track["hit_IDs"].update([hitID_dict[u], hitID_dict[v]])
+                    track["nodes"].append(u)
+                    track["nodes"].append(v)
+                    track["hit_IDs"].append(hitID_dict[u])
+                    track["hit_IDs"].append(hitID_dict[v])
+                    track["tids"].extend([int(tid_dict[u]), int(tid_dict[v])])  # Use extend() instead of update()
+                    track["traj_ps"].extend([int(traj_p_dict[u]), int(traj_p_dict[v])])
+                    track["traj_pts"].extend([int(traj_pt_dict[u]), int(traj_pt_dict[v])])
+                    track["traj_lambdas"].extend([int(traj_lambda_dict[u]), int(traj_lambda_dict[v])])
+                    track["traj_phis"].extend([int(traj_phi_dict[u]), int(traj_phi_dict[v])])
                     added = True
                     break
 
             # If no existing track can accommodate this edge, create a new track
             if not added:
-                tracks.append({"nodes": set([u, v]), "hit_IDs": set([hitID_dict[u], hitID_dict[v]])})
+                tracks.append({
+                    "nodes": [u, v], 
+                    "hit_IDs": [hitID_dict[u], hitID_dict[v]], 
+                    "tids": [tid_dict[u], tid_dict[v]],
+                    "traj_ps": [traj_p_dict[u], traj_p_dict[v]],
+                    "traj_pts": [traj_pt_dict[u], traj_pt_dict[v]],
+                    "traj_lambdas": [traj_lambda_dict[u], traj_lambda_dict[v]],
+                    "traj_phis": [traj_phi_dict[u], traj_phi_dict[v]]
+                    })
 
         # Filter tracks to ensure they have at least one hit per layer and min size
         valid_tracks = [track for track in tracks if len(track["nodes"]) >= min_track_size]
@@ -347,7 +387,7 @@ def construct_tracks(batch_graphs, batch_predictions, batch_hitID_dicts, min_tra
 
 
 # Run the function to extract valid tracks
-batch_tracks = construct_tracks(batch_graphs, batch_predictions, batch_hitID_dicts)
+batch_tracks = construct_tracks(batch_graphs, batch_predictions, batch_hitID_dicts, batch_tid_dicts)
 
 
 
@@ -364,11 +404,21 @@ def save_tracks(batch_tracks, output_dir="output"):
 
     for batch_idx, tracks in enumerate(batch_tracks):
         for track_idx, track in enumerate(tracks):
+            track_tids = track["tids"]
+
+            correct_track = 1 if all(tid == track_tids[0] for tid in track_tids) else 0
+
             all_tracks.append({
                 "batch": batch_idx,
                 "track_id": track_idx,
-                "hit_IDs": list(track["hit_IDs"]),
+                "hit_IDs": track["hit_IDs"],
+                "tids": track["tids"],
+                "traj_ps": track["traj_ps"],
+                "traj_pts": track["traj_pts"],
+                "traj_lambdas": track["traj_lambdas"],
+                "traj_phis": track["traj_phis"],
                 "num_hits": len(track["hit_IDs"]),
+                "correct_track": correct_track,
             })
 
     # Convert to DataFrame

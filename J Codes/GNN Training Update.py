@@ -12,6 +12,7 @@ import networkx as nx
 from scipy.spatial import cKDTree
 from mpl_toolkits.mplot3d import Axes3D
 from tqdm import tqdm
+import logging
 
 def load_data(file_path):
     table = pq.read_table(file_path)  # Load Parquet file as an Arrow table
@@ -26,7 +27,7 @@ def load_data(file_path):
     print("Frames from index 5000-5020:", ak.to_numpy(awk_array['frame_array'])[5000:5020])
 
     print("First few hit IDs:", ak.to_numpy(awk_array['hit_ID'])[:10])
-    print("First few pixelx values", ak.to_numpy(awk_array['pixelx_array'])[:10])
+    print("First few traj_pt values", ak.to_numpy(awk_array['traj_pt'])[:10])
     
     frame_values = ak.to_numpy(awk_array['frame_array'])  # Convert to NumPy
     print("Are frames sorted?", np.all(frame_values[:-1] <= frame_values[1:]))  # Check if sorted
@@ -36,7 +37,7 @@ def load_data(file_path):
     return awk_array
 
 
-file_path = 'ProcessedData/signal1_96_32652/train_data/train_data.parquet'
+file_path = 'GithubRepoLinux/ProcessedData/signal1_96_32652/train_data/train_data.parquet'
 awk_data = load_data(file_path)
 
 
@@ -102,6 +103,10 @@ def build_graph(batch, k_neighbours=5):
 
     hitID_dict = {}
     tid_dict = {} # Create separate tid dictionary to store so can't access in training (i.e., not node feature)
+    traj_p_dict = {}
+    traj_pt_dict = {}
+    traj_lambda_dict = {}
+    traj_phi_dict = {}
 
     # Add nodes
     for i, (x, y, z) in enumerate(coords):
@@ -113,11 +118,14 @@ def build_graph(batch, k_neighbours=5):
             G.add_node(i, gx=x, gy=y, gz=z, 
             layer=batch['layer_array'][i], 
             station=batch['station_array'][i])
-            # Node has features hit_ID and tid_array (need to ensure tid not accessible in training/testing)
         
             # Store tid separately for later evaluation (but NOT as part of the graph)
             tid_dict[i] = batch['tid_array'][i]
-            hitID_dict[i] = batch['hit_ID'][i]  
+            hitID_dict[i] = batch['hit_ID'][i]
+            traj_p_dict[i] = batch['traj_p'][i]
+            traj_pt_dict[i] = batch['traj_pt'][i]
+            traj_lambda_dict[i] = batch['traj_lambda'][i]
+            traj_phi_dict[i] = batch['traj_phi'][i]
 
         except KeyError as e:
             print(f"Missing key when adding node {i}: {e}")
@@ -177,23 +185,33 @@ def build_graph(batch, k_neighbours=5):
 
     print(f"Final graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
-    return G, hitID_dict, tid_dict
+    return G, hitID_dict, tid_dict, traj_p_dict, traj_pt_dict, traj_lambda_dict, traj_phi_dict
 
 batch_graphs = []
 batch_hitID_dicts = []
 batch_tid_dicts = []
+batch_p_dicts = []
+batch_pt_dicts = []
+batch_lambda_dicts = []
+batch_phi_dicts = []
 
 
 for batch in batches:
-    G, hitID_dict, tid_dict = build_graph(batch)  # Unpack both returned values
+    G, hitID_dict, tid_dict, traj_p_dict, traj_pt_dict, traj_lambda_dict, traj_phi_dict = build_graph(batch)  # Unpack both returned values
     batch_graphs.append(G)  # Store the graph
     batch_hitID_dicts.append(hitID_dict) # Store hitID_dict
     batch_tid_dicts.append(tid_dict)  # Store tid_dict
+    batch_p_dicts.append(traj_p_dict)
+    batch_pt_dicts.append(traj_pt_dict)
+    batch_lambda_dicts.append(traj_lambda_dict)
+    batch_phi_dicts.append(traj_phi_dict)
 
 
 # Print number of edges after graph construction
 for i, G in enumerate(batch_graphs):
     print(f"Batch {i}: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+
+
 
 '''
 def plot_graph2D(G):
@@ -343,10 +361,15 @@ num_epochs = 10  # Define number of epochs
 
 total_steps = num_epochs * len(batch_graphs)  # Total iterations across all epochs
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppresses unnecessary logs
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+logging.getLogger("tensorflow").setLevel(logging.ERROR)
+
 with tqdm(total=total_steps, desc="Training Progress", unit="batch") as pbar:
     for epoch in range(num_epochs):
-        tqdm.write(f"Epoch {epoch+1}/{num_epochs}")
+        pbar.set_description(f"Epoch {epoch+1}/{num_epochs}")
+
+        epoch_losses = []  # Store batch losses for averaging
+        epoch_accuracies = []
 
         for batch_graph, tid_dict in zip(batch_graphs, batch_tid_dicts):
             # Extract edge features & labels for the batch
@@ -363,11 +386,19 @@ with tqdm(total=total_steps, desc="Training Progress", unit="batch") as pbar:
 
             # Train the model on this batch
             loss, acc = model.train_on_batch(edge_feats_tensor, edge_lbls_tensor)
-            tqdm.write(f"Batch loss: {loss:.4f}, Batch accuracy: {acc:.4f}")
+            #tqdm.write(f"Batch loss: {loss:.4f}, Batch accuracy: {acc:.4f}")
+
+            epoch_losses.append(loss)
+            epoch_accuracies.append(acc)
 
             # Update the progress bar
             pbar.set_postfix(loss=f"{loss:.4f}", acc=f"{acc:.4f}", epoch=epoch+1)
             pbar.update(1)  # Move progress forward by one batch
 
+        avg_loss = np.mean(epoch_losses)
+        avg_acc = np.mean(epoch_accuracies)
+        tqdm.write(f"Epoch {epoch+1} - Avg Loss: {avg_loss:.4f}, Avg Acc: {avg_acc:.4f}")
+
+
 print("Training complete! Saving model...")
-model.save("trained_gnn_model2")
+model.save("trained_gnn_model3")

@@ -16,10 +16,8 @@ def Dataset(signal_dir):
     #extract spatial (layer, station, ladder, chip, pixel x, pixel y) classes from original dataset
     #and convert to awkward array
     signal_arrays = ak.Array({
-        'frame_array': dataframe['frame'].to_numpy(),
+        'frame_array': dataframe['frameNumber'].to_numpy(),
         'hit_ID' : dataframe['hitIndex'].to_numpy(),
-        'pixelx_array' : dataframe['pixelx'].to_numpy(),
-        'pixely_array' : dataframe['pixely'].to_numpy(),
         'layer_array' :  dataframe['layer'].to_numpy(),
         'station_array' : dataframe['station'].to_numpy(),
         'ladder_array' : dataframe['ladder'].to_numpy(),
@@ -27,7 +25,11 @@ def Dataset(signal_dir):
         'tid_array' : dataframe['tid'].to_numpy(),
         'gx' : dataframe['gx'].to_numpy(),
         'gy' : dataframe['gy'].to_numpy(),
-        'gz' : dataframe['gz'].to_numpy()
+        'gz' : dataframe['gz'].to_numpy(),
+        'traj_p' : dataframe['traj_p'].to_numpy(),
+        'traj_pt' : dataframe['traj_pt'].to_numpy(),
+        'traj_lambda' : dataframe['traj_lambda'].to_numpy(),
+        'traj_phi' : dataframe['traj_phi'].to_numpy(),
     })
     
     #sort hit arrays by frame 
@@ -158,8 +160,8 @@ def Normalization(train_data,test_data):
 
 #Finally making the dataset
 def MakeDataset():
-    train_dir = "ProcessedData/signal1_96_32652/train_data"
-    test_dir = "ProcessedData/signal1_96_32652/test_data"
+    train_dir = "GithubRepoLinux/ProcessedData/signal1_96_32652/train_data"
+    test_dir = "Github RepoLinux/ProcessedData/signal1_96_32652/test_data"
 
     if not os.path.exists(train_dir):
         os.makedirs(train_dir)
@@ -178,8 +180,6 @@ def MakeDataset():
     padding_values = {
         "frame_array": 0,
         "hit_ID": 0,
-        "pixelx_array": 0,
-        "pixely_array": 0,
         "layer_array": 0,
         "station_array": 0,
         "ladder_array": 0,
@@ -187,12 +187,16 @@ def MakeDataset():
         "tid_array": 0,
         "gx" : 0,
         "gy" : 0,
-        "gz" : 0
+        "gz" : 0,
+        "traj_p" : 0,
+        "traj_pt" : 0,
+        "traj_lambda" : 0,
+        "traj_phi" : 0
     }
     #Dictionary of padding values for each parameter
     #can change these padding values for physical/practical reasons as wish
 
-    signal_dir = "ProcessedData/signal1_96_32652/csv/hits_data_signal1_96_32652.csv"
+    signal_dir = "GithubRepoLinux/ProcessedData/signal1_96_32652/csv/new_hits_data_signal1_96_32652.csv"
     split_ratio = 0.75
 
 
