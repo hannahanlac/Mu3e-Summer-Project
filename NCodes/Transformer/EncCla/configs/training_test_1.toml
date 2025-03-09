@@ -1,0 +1,58 @@
+# example toml
+[experiment]
+name = "experiment_more_merged_data"
+description = "run set 1"
+
+[data]
+data_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TestSet4"
+train_file = "merged_train.pt"
+val_file = "merged_val.pt"
+test_file = "merged_test.pt"
+test_helperfile = "merged_test_helper.pt"
+test_truthfile = "merged_test_truths_shuffled.csv"
+dataloader_num_workers = 4
+num_classes = 5400
+
+[model]
+inputfeature_dim = 3
+num_heads = 8
+embed_dim = 128 
+num_layers = 6
+dropout = 0.1
+use_flash_attention = true
+
+
+[training]
+batch_size = 32
+total_epochs = 2
+shuffle = false # whether training data should be shuffled
+start_from_scratch = true
+
+[training.scheduler]
+# type is only ReduceOnPlateau atm
+warmup_epochs = 1
+initial_lr = 1e-4
+target_lr = 1e-3
+mode = "min"
+factor = 0.5
+patience = 10
+verbose = true
+
+[training.early_stopping]
+patience = 7
+verbose = true  
+
+
+[output]
+base_path = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TestSet4/Training/"
+output = "merged_test_run"
+
+[logging]
+level = "INFO"
+epoch_log_interval = 2
+model_save_interval = 50
+
+[wandb]
+project_name = "Transformer_tracking"
+run_name = "merged_data_test_1"
+watch_interval = 20

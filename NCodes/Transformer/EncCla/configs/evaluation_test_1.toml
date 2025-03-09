@@ -1,0 +1,39 @@
+# example toml
+[experiment]
+name = "evaluation_test_more_data"
+description = "evaluation_test_1_more_data"
+
+[data]
+data_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TestSet4/Evaluation/"
+test_file = "merged_test.pt"
+test_helperfile = "merged_test_helper.pt"
+test_truthfile = "merged_test_truths_shuffled.csv"
+dataloader_num_workers = 4
+num_classes = 5400
+
+
+[model]
+checkpoint_path = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TestSet4/Training/run_20250309_135859/model_final.pth"
+inputfeature_dim = 3
+num_heads = 8
+embed_dim = 128
+num_layers = 6
+dropout = 0.1
+
+
+[training]
+batch_size = 32
+
+
+[output]
+base_path = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TestSet4/Evaluation/"
+
+
+
+[logging]
+level = "INFO"
+
+[wandb]
+
+project_name = "Transformer_tracking"
+run_name = "merged_evaluation_test_1"
