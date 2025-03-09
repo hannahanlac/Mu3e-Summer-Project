@@ -184,7 +184,7 @@ def TestTrirecSave (merged_trirec, train_ratio=0.8, val_ratio=0.1, test_ratio=0.
 
 
 trirec_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TrirecFiles"
-output_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/OutputTest2/"
+output_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/OutputTest3/"
 
 merged_trirec = ProcessTrirecFiles(trirec_dir, output_dir)
 

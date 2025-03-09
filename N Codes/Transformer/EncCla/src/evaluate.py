@@ -111,7 +111,7 @@ def evaluate(model, testloader, helperloader, truths_df, device, output_dir, wan
     predictions_df_filtered = predictions_df[predictions_df["hitIndex"] != 0]
 
     predictions_truth_merge = predictions_df_filtered.merge(
-        truths_df[["hitIndex", "tid", "traj_p", "traj_pt", "traj_lambda", "traj_phi", "bin_index"]],
+        truths_df[["hitIndex", "tid","traj_type", "traj_p", "traj_pt", "traj_lambda", "traj_phi", "bin_index"]],
         on='hitIndex',
         how='left'
     )
