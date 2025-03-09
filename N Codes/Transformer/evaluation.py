@@ -2,7 +2,6 @@ import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-import hist 
 
 def MomentumAccuracy(file):
     """Function to plot the momentum accuracy of the reconstruction.

@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import random
 import glob
+from tqdm import tqdm
 
 ###### Use this code to create the data sets for the transformer model. Saves all the files into a data_training folder.
 
@@ -137,7 +138,7 @@ def CompileHits(signal_file, signal_no):
     mchits = signal_file["mu3e_mchits"].arrays(["tid", "hid", "hid_g"])
     print("Building mchits dictionary: Takes around 2 mins")
     mchits_data = mchits_data = {i: {"tid": tid, "hid": hid, "hid_g": hid_g}        # This is necessary as the tid are stored
-                for i, (tid, hid, hid_g) in enumerate(zip(mchits["tid"], mchits["hid"], mchits["hid_g"]))}
+                for i, (tid, hid, hid_g) in tqdm(enumerate(zip(mchits["tid"], mchits["hid"], mchits["hid_g"])), total=len(mchits["tid"]), desc="Building mchits dictionary", ncols=100)}
 
     #total frames and numbers:
     total_frames = len(mu3eTree)
@@ -146,7 +147,7 @@ def CompileHits(signal_file, signal_no):
 
     #Iterate over all frames, collect hit information
     all_hits = [] # List for all the frame hits to be appended to  
-    for frame_number in frame_numbers:
+    for frame_number in tqdm(frame_numbers, desc="Processing frames", ncols=100):
         #print("Frame number:", frame_number) #NOTE: Means lots of print statements. Remove when confident, but good way to track progess
         frame_hits = HitsInFrame(frame_number, mu3eTree,sensor_data_dict, mchits_data)
         all_hits.extend(frame_hits)
@@ -201,7 +202,7 @@ def CompileTruth(signal_file, signal_no):
 
     #Iterate over all frames, collect hit information
     all_hits = [] # List for all the frame hits to be appended to  
-    for frame_number in frame_numbers:
+    for frame_number in tqdm(frame_numbers, desc="Processing frames", ncols=100):
         #print("Frame number:", frame_number)
         frame_hits = TruthInfo(frame_number, mu3eTree)
         all_hits.extend(frame_hits)
@@ -496,6 +497,184 @@ def ProcessRootFiles(root_dir, output_dir, p_bins, lam_bins, phi_bins, q_mapping
 
     print("Processing complete")
 
+# When making evaluation sets, compile all the trirec data:
+def FrameTracks(frame_number, frames_tree):
+
+    """Extract info on tracks and the corresponding mc info in a given frame of the trirec file.
+    Input:
+        frame_number
+        frame_tree: The pre-loaded frame tree of the root file
+
+    Returns:
+        list: A list of dictionaries containing track information.
+    """
+    frames_frame = frames_tree[frame_number]  # Extract the specific frame
+    frame_hits = []  # List to store track information
+
+    # Extract track parameters for the frame
+    frameId = frames_frame["frameId"]
+    x0 = frames_frame["x0"]
+    y0 = frames_frame["y0"]
+    z0 = frames_frame["z0"]
+    r = frames_frame["r"]
+    p = frames_frame["p"]
+    chi2 = frames_frame["chi2"]
+    length = frames_frame["nhit"]
+   # mc_eventId = frames_frame["mc_eventId"] 
+    mc_prime = frames_frame["mc_prime"]
+    mc = frames_frame["mc"]
+    mc_tid= frames_frame["mc_tid"]
+    mc_pid= frames_frame["mc_pid"] 
+    mc_mid= frames_frame["mc_mid"]
+    mc_type = frames_frame["mc_type"]
+    mc_p = frames_frame["mc_p"]
+    mc_pt = frames_frame["mc_pt"]
+    mc_phi = frames_frame["mc_phi"]
+    mc_lam = frames_frame["mc_lam"]
+    mc_theta = frames_frame["mc_theta"]
+    mc_vx = frames_frame["mc_vx"]
+    mc_vy = frames_frame["mc_vy"]
+    mc_vz = frames_frame["mc_vz"]
+    mc_vr = frames_frame["mc_vr"]
+
+    # Loop over tracks in this frame, making separate entries
+    for i in range(len(frames_frame["x0"])):  
+        frame_hits.append({
+            'frameNumber': frame_number,  
+            'frameId': frameId,  
+            'x0': x0[i],  
+            'y0': y0[i],  
+            'z0': z0[i],  
+            'r': r[i],  
+            'p': p[i],  
+            'chi2': chi2[i], 
+            'length': length[i], 
+            #'mc_eventId': mc_eventId[i],
+            'mc_prime' : mc_prime[i],
+            'mc measure' :mc[i],
+            'mc_tid':mc_tid[i],
+            'mc_pid':mc_pid[i],
+            'mc_mid':mc_mid[i],
+            'mc_type': mc_type[i],  
+            'mc_p': mc_p[i],  
+            'mc_pt': mc_pt[i],  
+            'mc_phi': mc_phi[i],  
+            'mc_lam': mc_lam[i],  
+            'mc_theta': mc_theta[i],  
+            'mc_vx': mc_vx[i],  
+            'mc_vy': mc_vy[i],  
+            'mc_vz': mc_vz[i],  
+            'mc_vr': mc_vr[i]
+        })
+
+    return frame_hits
+
+def CompileTrirec(trirec_file):
+    """"Function that iterates over a whole trirec file to compile the tracks"""
+    frames_tree = trirec_file['frames'].arrays()  # Load the frames tree as an awkward array
+    total_frames = len(frames_tree)
+    print('Total number of frames in file:', total_frames)
+    frame_numbers = list(range(0, total_frames))
+
+    # Iterate over all frames and collect track information
+    all_hits = []
+    for frame_number in tqdm(frame_numbers,desc="processing frames", ncols=100):
+        frame_hits = FrameTracks(frame_number, frames_tree)
+        all_hits.extend(frame_hits)
+
+    # Convert to Pandas DataFrame
+    all_frames_data = pd.DataFrame(all_hits)
+    
+    return all_frames_data
+
+def ProcessTrirecFiles(root_dir, output_dir):
+    """Process all ROOT files in a given directory and generate training data."""
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    all_trirec_data = []
+    frame_offset = 0  # Keep track of frame numbers across files
+
+    root_files = glob.glob(os.path.join(root_dir, "*.root"))
+
+    print(f"Found {len(root_files)} ROOT files in {root_dir}")
+    print(f"Found {len(root_files)} ROOT files: {root_files}")
+
+    for root_file in root_files:
+        # Extract the first two parts
+        signal_no = "_".join(root_file.split("_")[:2])
+        print(f"Processing {signal_no}")
+        signal_file = uproot.open(root_file)
+        print()
+
+        # Compile hits and truth data
+        print(f"Compiling trirec data for {signal_no}")
+        trirec_data =  CompileTrirec(signal_file)
+
+
+        # Adjust frame numbers to avoid duplicates
+        trirec_data["frameNumber"] += frame_offset
+
+        all_trirec_data.append(trirec_data)
+        frame_offset += 9921  # Update offset for next file
+
+    print("Merging data from all roots files:")
+    merged_trirec = pd.concat(all_trirec_data, ignore_index=True) # Make one big dataframe of hits
+
+    merged_trirec.to_csv(f"{output_dir}merged_trirec_data_ALL.csv", index=False)
+    print("Saved all merged trirec data ")
+
+    return merged_trirec
+
+# Make the comparison data for the current alg
+def BuildComparisonData(merged_hits_truth_file, trirec_file, signal_no):
+    """Function that takes the relevant data files for hits with their ground truth values, and assigned tracks,   
+    and builds a single data file for evaluation.
+    Input:
+    - merged_hits_truth_file: File containing raw hits data and its truth params, made using the "compile_datasets.py" code
+    - trirec_file: File containing trirec reconstruction data from current algorithm, and its truth parameters. 
+    #NOTE: If function changed to work for output of the ML model, will need to change trirec_file to be OUTPUT FILE OF ML MODEL.
+    Output:
+    - Single file containing Info on no. of unique 4-hit reconstructable tracks, ground truth momenta of tracks, and reconstruction attempt
+    """
+
+    #Open the 2 different files and read the csvs
+    merged_hits_truth_data = pd.read_csv(merged_hits_truth_file)
+    trirec_data = pd.read_csv(trirec_file)
+
+    
+    # Count no. of each tid in hit data, remove duplicates, filter out all with <4 hits (our condition 'reconstructable')
+    merged_hits_truth_data['num_hits'] = merged_hits_truth_data.groupby('tid')['tid'].transform('count')
+    filtered_hits_truth_data = merged_hits_truth_data[merged_hits_truth_data['num_hits'] >= 4].drop_duplicates(subset=['tid'])
+
+
+
+    #Count no. of reconstructed tracks for single tid in trirec file. Then remove duplicates (SEE NOTE)
+    trirec_data['num_recon_tracks'] = trirec_data.groupby('mc_tid')['mc_tid'].transform('count')
+  #trirec_data.drop_duplicates(subset=['mc_tid']) 
+    # NOTE:This line removes duplicates of mc_tid. You want to REMOVE duplicates for the overall efficiency, but KEEP duplicates for the fake rate! 
+    # For now: I simply keep the duplicates here, then remove them in the function for overall efficiency
+
+
+    # Merge with trirec data 
+    all_merged = filtered_hits_truth_data.merge(
+        trirec_data[['length', 'mc_prime', 'mc measure', 'mc_tid', 'num_recon_tracks', 'mc_vx', 'mc_vy', 'mc_vz', 'mc_p','mc_pt', 'mc_lam']],  # Keep only relevant columns
+        left_on='tid',
+        right_on='mc_tid',
+        how='left'  # Keeps all rows from merged_df, fills missing trirec info with NaN
+    )
+
+    #df_merged_truths = all_merged.dropna(subset = ['traj_px'])
+
+    # # Print results
+    # print("Final dataframe with merged info:")
+    # print(df_merged_truths.head())  # Print first few rows to check
+
+    file_path = f"/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TrirecFiles/Outputs/merged_comparison_t2.csv"
+    all_merged.to_csv(file_path, index=False)
+    return 
+
+
 
 
 #########################################################################################################################################
@@ -532,11 +711,25 @@ total_bins = num_p_bins * num_lam_bins *num_phi_bins * 2
 
 
 ################################## Hits Data Conversion and CSV making ########################################################
-root_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/RootFiles"
-output_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/OutputTest3"
+
+root_dir = "/users/rk21159/DataFiles/SortFiles"
+output_dir = "/users/rk21159/DataFiles/TransformerDataFiles/TestSet1"
+
+trirec_dir = "/users/rk21159/DataFiles/TrirecFiles"
+output_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/OutputTest2/"
+
 
 
 ProcessRootFiles(root_dir, output_dir, p_bins, lam_bins, phi_bins, q_mapping)
+
+
+### When you are going to compile evaluation, and test current algorithm:
+
+#merged_trirec = ProcessTrirecFiles(trirec_dir, output_dir) #NOTE: Run this when you need to compile the extracting 
+# merged_hits_truth_data = "/path" #Should really be an eval set
+# trirec_file = "/path"
+# BuildComparisonData()
+
 
 # if __name__ == "__main__":
 #     import argparse
