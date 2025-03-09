@@ -22,9 +22,13 @@ def BuildComparisonData(merged_hits_truth_file, trirec_file, signal_no):
 
     
     # Count no. of each tid in hit data, remove duplicates, filter out all with <4 hits (our condition 'reconstructable')
-    merged_hits_truth_data['num_hits'] = merged_hits_truth_data.groupby('tid')['tid'].transform('count')
-    filtered_hits_truth_data = merged_hits_truth_data[merged_hits_truth_data['num_hits'] >= 4].drop_duplicates(subset=['tid'])
-
+    merged_hits_truth_data_filtered_columns = merged_hits_truth_data[[
+    "frameNumber","tid", "traj_type", "traj_px", "traj_py", "traj_pz", 
+    "traj_p", "traj_pt", "traj_lambda", "traj_phi", "p_bin", 
+    "lambda_bin", "phi_bin", "type_bin", "bin_index"]].copy()
+    merged_hits_truth_data_filtered_columns['num_hits'] = merged_hits_truth_data_filtered_columns.groupby('tid')['tid'].transform('count')
+    filtered_hits_truth_data = merged_hits_truth_data_filtered_columns[merged_hits_truth_data_filtered_columns['num_hits'] >= 4].drop_duplicates(subset=['tid'])
+    
 
 
     #Count no. of reconstructed tracks for single tid in trirec file. Then remove duplicates (SEE NOTE)
