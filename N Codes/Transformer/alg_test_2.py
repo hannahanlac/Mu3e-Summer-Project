@@ -646,24 +646,24 @@ def RatioLongToShortTracks (data_file, min_lam, max_lam, lam_res, min_p, max_p, 
 
 
 #Test efficiency
-comparison_file = "/root/Mu3eProject/DataFilesAndTests/TransformerData/TestForEffPlots/merged_tracks.csv"
+comparison_file = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/OutputTest2/merged_comparison_test_fix.csv"
 df_comparison = pd.read_csv(comparison_file)
 
 
 EfficiencyTrackLengthPlot(df_comparison, truth_measure='absolute')
-# TotalEfficiencyMeasure(df_comparison, truth_measure = 'absolute', hit_count = 4)
-# EfficiencyMomentumPlot(df_comparison, min_momentum = 0, max_momentum = 100, momentum_res = 10, p_type = 'traj_p')
+TotalEfficiencyMeasure(df_comparison, truth_measure = 'absolute', hit_count = 4)
+EfficiencyMomentumPlot(df_comparison, min_momentum = 0, max_momentum = 100, momentum_res = 10, p_type = 'traj_p')
 
 EfficiencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits = 4, truth_measure = 'absolute')
 EfficiencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_p', num_hits = 4, truth_measure = 'all')
 
-# RatioLongToShortTracks(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits = 4)
+RatioLongToShortTracks(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits = 4)
 
-# TrackFrequencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 2, p_type = 'traj_p', num_hits = 4, truth_measure = 'absolute')
+TrackFrequencyLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 2, p_type = 'traj_p', num_hits = 4, truth_measure = 'absolute')
 
-# FakeRateLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 2, p_type = 'traj_p', num_hits = 4, fake_measure = 'harsh') #Harsh = non absolute true = fake, lenient = mc_prime:0 AND mc measure:0
+FakeRateLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 2, p_type = 'traj_p', num_hits = 4, fake_measure = 'harsh') #Harsh = non absolute true = fake, lenient = mc_prime:0 AND mc measure:0
 
-# TotalFakeRateMeasure(df_comparison, fake_measure = 'harsh', num_hits = 4 )
+TotalFakeRateMeasure(df_comparison, fake_measure = 'harsh', num_hits = 4 )
 
-# FakeRateTrackLengthPlot(df_comparison, fake_measure = 'harsh', num_hits = 4)
+FakeRateTrackLengthPlot(df_comparison, fake_measure = 'harsh', num_hits = 4)
 
