@@ -16,7 +16,7 @@ def Dataset(signal_dir):
     #extract spatial (layer, station, ladder, chip, pixel x, pixel y) classes from original dataset
     #and convert to awkward array
     signal_arrays = ak.Array({
-        'frame_array': dataframe['frameNumber'].to_numpy(),
+        'frame_array': dataframe['frame'].to_numpy(),
         'hit_ID' : dataframe['hitIndex'].to_numpy(),
         'layer_array' :  dataframe['layer'].to_numpy(),
         'station_array' : dataframe['station'].to_numpy(),
@@ -118,6 +118,9 @@ def Normalization(train_data,test_data):
         if key == 'layer_array':
             continue
 
+        if key == 'station_array':
+            continue
+
         # Reshape to 2D for scaler
         train_array = train_array.reshape(-1, 1)
         train_array = scaler.fit_transform(train_array)
@@ -141,6 +144,9 @@ def Normalization(train_data,test_data):
             continue
 
         if key == 'layer_array':
+            continue
+
+        if key == 'station_array':
             continue
 
         test_array = test_array.reshape(-1, 1)
