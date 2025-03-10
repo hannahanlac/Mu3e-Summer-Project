@@ -113,7 +113,7 @@ def build_graph(batch, k_neighbours=5):
 
     # Add nodes
     for i, (x, y, z) in enumerate(coords):
-        if np.isnan(x) or np.isnan(y) or np.isnan(z):
+        if np.any(np.isnan([x, y, z])):
             print(f"Skipping node {i} due to NaN values")
             continue  # Skip nodes with NaN coordinates
 
@@ -174,6 +174,7 @@ def build_graph(batch, k_neighbours=5):
                 # Query k nearest neighbours in the adjacent layer
                 k = min(k_neighbours, len(neighbour_nodes))  # Avoid querying more than available
                 _, indices = neighbour_tree.query(coord, k=k)
+                indices = np.array([indices]) if np.isscalar(indices) else indices
 
                 # Ensure indices is always an iterable (handle case where a single value is returned)
                 if np.isscalar(indices):  
@@ -188,7 +189,7 @@ def build_graph(batch, k_neighbours=5):
 
     print(f"Final graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
-    return G, hitID_dict, tid_dict
+    return G, hitID_dict, tid_dict, traj_p_dict, traj_pt_dict, traj_lambda_dict, traj_phi_dict
 
 batch_graphs = []
 batch_hitID_dicts = []
@@ -200,7 +201,8 @@ batch_phi_dicts = []
 
 
 for batch in batches:
-    G, hitID_dict, tid_dict = build_graph(batch)  # Unpack both returned values
+    G, hitID_dict, tid_dict, traj_p_dict, traj_pt_dict, traj_lambda_dict, traj_phi_dict = build_graph(batch)
+
     batch_graphs.append(G)  # Store the graph
     batch_hitID_dicts.append(hitID_dict) # Store hitID_dict
     batch_tid_dicts.append(tid_dict)
@@ -357,10 +359,10 @@ def construct_tracks(batch_graphs, batch_predictions, batch_hitID_dicts, batch_t
                     track["hit_IDs"].append(hitID_dict[u])
                     track["hit_IDs"].append(hitID_dict[v])
                     track["tids"].extend([int(tid_dict[u]), int(tid_dict[v])])  # Use extend() instead of update()
-                    track["traj_ps"].extend([int(traj_p_dict[u]), int(traj_p_dict[v])])
-                    track["traj_pts"].extend([int(traj_pt_dict[u]), int(traj_pt_dict[v])])
-                    track["traj_lambdas"].extend([int(traj_lambda_dict[u]), int(traj_lambda_dict[v])])
-                    track["traj_phis"].extend([int(traj_phi_dict[u]), int(traj_phi_dict[v])])
+                    track["traj_ps"].extend([int(ak.to_numpy(traj_p_dict[u])), int(ak.to_numpy(traj_p_dict[v]))])
+                    track["traj_pts"].extend([int(ak.to_numpy(traj_pt_dict[u])), int(ak.to_numpy(traj_pt_dict[v]))])
+                    track["traj_lambdas"].extend([int(ak.to_numpy(traj_lambda_dict[u])), int(ak.to_numpy(traj_lambda_dict[v]))])
+                    track["traj_phis"].extend([int(ak.to_numpy(traj_phi_dict[u])), int(ak.to_numpy(traj_phi_dict[v]))])
                     added = True
                     break
 
@@ -423,6 +425,17 @@ def save_tracks(batch_tracks, output_dir="output"):
 
     # Convert to DataFrame
     df = pd.DataFrame(all_tracks)
+
+    df = df.dropna(subset=['traj_ps'])
+    df = df.dropna(subset=['traj_pts'])
+    df = df.dropna(subset=['traj_lambdas'])
+    df = df.dropna(subset=['traj_phis'])
+
+
+    df['traj_ps'] = df['traj_ps'].apply(lambda x: str(x) if isinstance(x, list) else x)
+    df['traj_pts'] = df['traj_pts'].apply(lambda x: str(x) if isinstance(x, list) else x)
+    df['traj_lambdas'] = df['traj_lambdas'].apply(lambda x: str(x) if isinstance(x, list) else x)
+    df['traj_phis'] = df['traj_phis'].apply(lambda x: str(x) if isinstance(x, list) else x)
 
     # Save to CSV
     csv_path = "ProcessedData/signal1_96_32652/reconstrcted_tracks/predicted_tracks.csv"

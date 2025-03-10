@@ -88,7 +88,7 @@ def HitsInFrame(frame_number, mu3eTree, sensor_data_dict, mchits_data):
 
             mc_hit_info = mchits_data.get(mcIndex, {"tid", "hid", "hid_g"}) #Extract rel mc info based on index 
             frame_hits.append({ 
-                'frameNumber': frame_number,           # Append a dictionary with the hit information
+                'frame': frame_number,           # Append a dictionary with the hit information
                 'hitIndex': hit.hitIndex, # Not sure actually need the hit index? Include for now - actually useful for denoting each one
                 'sensor_id': sensor_id,
                 'row': row,
@@ -111,6 +111,8 @@ def HitsInFrame(frame_number, mu3eTree, sensor_data_dict, mchits_data):
             })
         break
     return frame_hits # Return awkward array with the frame hits data
+
+##########################################
 
 def CompileHits(signal_file, signal_no):
     """Function for compiling the hits_data"""
@@ -149,7 +151,7 @@ def CompileHits(signal_file, signal_no):
         all_hits.extend(frame_hits)
 
     # Sort hits by frame number and then by tid within each frame
-    #all_hits.sort(key=lambda x: (x['frameNumber'], x['tid'],x['hid'])) #NOTE: If this line is included, you sort training data into tracks anyway!! Could be an issue.
+    #all_hits.sort(key=lambda x: (x['frame'], x['tid'],x['hid'])) #NOTE: If this line is included, you sort training data into tracks anyway!! Could be an issue.
 
 
     # Converting array to Panda
@@ -165,7 +167,7 @@ def CompileHits(signal_file, signal_no):
 def TruthInfo(frame_number, mu3eTree):
     """Find truth info for a single frame."""
     frame_mc_data = ak.zip({
-        'frameNumber': frame_number,
+        'frame': frame_number,
         'hit_in_frame': ak.local_index(mu3eTree['traj_ID'][frame_number]),  
         'traj_ID': mu3eTree['traj_ID'][frame_number],
         'traj_mother': mu3eTree['traj_mother'][frame_number],
@@ -294,8 +296,8 @@ def ProcessRootFiles(root_dir, output_dir):
         truth_data =  CompileTruth(signal_file, signal_no)
 
         # Adjust frame numbers to avoid duplicates
-        hit_data["frameNumber"] += frame_offset
-        truth_data["frameNumber"] += frame_offset
+        hit_data["frame"] += frame_offset
+        truth_data["frame"] += frame_offset
 
         all_hit_data.append(hit_data)
         all_truth_data.append(truth_data)
