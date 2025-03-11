@@ -121,6 +121,12 @@ def Normalization(train_data,test_data):
         if key == 'station_array':
             continue
 
+        if key == 'ladder_array':
+            continue
+
+        if key == 'chip_array':
+            continue
+
         # Reshape to 2D for scaler
         train_array = train_array.reshape(-1, 1)
         train_array = scaler.fit_transform(train_array)
@@ -147,6 +153,12 @@ def Normalization(train_data,test_data):
             continue
 
         if key == 'station_array':
+            continue
+
+        if key == 'ladder_array':
+            continue
+
+        if key == 'chip_array':
             continue
 
         test_array = test_array.reshape(-1, 1)

@@ -20,6 +20,13 @@ def load_data(file_path):
     awk_array = ak.from_arrow(table)  # Convert Arrow table to an Awkward Array
     print(awk_array)
 
+    # Convert Awkward arrays to flat Numpy arrays
+    flat_dict = {key: ak.to_numpy(awk_array[key]).flatten() for key in awk_array.fields}
+
+    # Convert to a new Awkward array (all values now 1D)
+    awk_array = ak.Array(flat_dict)
+
+
     # Debugging: Check the first few rows
     print(f"Loaded dataset: {len(awk_array['hit_ID'])} hits")
 
@@ -88,11 +95,23 @@ def build_graph(batch, k_neighbours=5):
     gy = ak.to_numpy(batch['gy'])
     gz = ak.to_numpy(batch['gz'])
     layers = ak.to_numpy(batch['layer_array'])  # Convert layer_array to NumPy
+    stations = ak.to_numpy(batch['station_array'])
+    ladders = ak.to_numpy(batch['ladder_array'])
+    chips = ak.to_numpy(batch['chip_array'])
+    hit_IDs = ak.to_numpy(batch['hit_ID'])
+    tids = ak.to_numpy(batch['tid_array'])
+    traj_p = ak.to_numpy(batch['traj_p'])
+    traj_pt = ak.to_numpy(batch['traj_pt'])
+    traj_lambda = ak.to_numpy(batch['traj_lambda'])
+    traj_phi = ak.to_numpy(batch['traj_phi'])
 
-    # Ensure arrays are not empty
-    if len(gx) == 0 or len(gy) == 0 or len(gz) == 0:
-        print("Warning: Empty batch detected!")
-        return nx.Graph()  # Return an empty graph
+    # Ensure no NaN values
+    valid_mask = ~(np.isnan(gx) | np.isnan(gy) | np.isnan(gz))
+    
+    gx, gy, gz = gx[valid_mask], gy[valid_mask], gz[valid_mask]
+    layers, stations, ladders, chips = layers[valid_mask], stations[valid_mask], ladders[valid_mask], chips[valid_mask]
+    hit_IDs, tids, traj_p, traj_pt, traj_lambda, traj_phi = hit_IDs[valid_mask], tids[valid_mask], traj_p[valid_mask], traj_pt[valid_mask], traj_lambda[valid_mask], traj_phi[valid_mask]
+
 
     # Stack into coordinate array
     coords = np.column_stack((gx, gy, gz))  # Alternative to vstack.T, shape (N, 3)
@@ -106,33 +125,27 @@ def build_graph(batch, k_neighbours=5):
 
     G = nx.Graph()  # Initialize an empty graph
 
-    hitID_dict = {}
-    tid_dict = {} # Create separate dictionary to store so can't access in training (i.e., not node feature)
-    traj_p_dict = {}
-    traj_pt_dict = {}
-    traj_lambda_dict = {}
-    traj_phi_dict = {}
+    node_truth_info = {
+        i: {
+            "hit_ID": hit_IDs[i],
+            "tid": tids[i],
+            "traj_p": traj_p[i],
+            "traj_pt": traj_pt[i],
+            "traj_lambda": traj_lambda[i],
+            "traj_phi": traj_phi[i]
+        }
+        for i in range(len(coords))
+    }
 
     # Add nodes
-    for i, (x, y, z) in enumerate(coords):
+    for i, (x, y, z, layer, station, ladder, chip) in enumerate(zip(gx, gy, gz, layers, stations, ladders, chips)):
         if np.isnan(x) or np.isnan(y) or np.isnan(z):
             print(f"Skipping node {i} due to NaN values")
             continue  # Skip nodes with NaN coordinates
 
         try:
-            G.add_node(i, gx=x, gy=y, gz=z, 
-            layer=batch['layer_array'][i], 
-            station=batch['station_array'][i],
-            ladder=batch['ladder_array'][i],
-            chip=batch['chip_array'][i])
+            G.add_node(i, gx=x, gy=y, gz=z, layer=layer, station=station, ladder=ladder, chip=chip)
         
-            # Store tid separately for later evaluation (but NOT as part of the graph)
-            tid_dict[i] = batch['tid_array'][i]
-            hitID_dict[i] = batch['hit_ID'][i]
-            traj_p_dict[i] = batch['traj_p'][i]
-            traj_pt_dict[i] = batch['traj_pt'][i]
-            traj_lambda_dict[i] = batch['traj_lambda'][i]
-            traj_phi_dict[i] = batch['traj_phi'][i]
 
         except KeyError as e:
             print(f"Missing key when adding node {i}: {e}")
@@ -160,12 +173,13 @@ def build_graph(batch, k_neighbours=5):
         if layer not in layer_indices:
             continue
 
+        layer_nodes = layer_indices[layer] # Get node indices for current layer
+
         for neighbour_layer in neighbours:
             if neighbour_layer not in layer_indices:
                 continue
 
-            # Get the node indices for the current and adjacent layer
-            layer_nodes = layer_indices[layer]
+            # Get node indices for adjacent layer
             neighbour_nodes = layer_indices[neighbour_layer]
 
             # Build KDTree for the neighbouring layer
@@ -175,43 +189,32 @@ def build_graph(batch, k_neighbours=5):
             for i in layer_nodes:
                 coord = coords[i]  # Get 3D position of the current node
                 
-                # Query k nearest neighbours in the adjacent layer
-                k = min(k_neighbours, len(neighbour_nodes))  # Avoid querying more than available
-                _, indices = neighbour_tree.query(coord, k=k)
+            distances, indices = neighbour_tree.query(coords[layer_nodes], k=min(k_neighbours, len(neighbour_nodes)))
 
-                # Ensure indices is always an iterable (handle case where a single value is returned)
-                if np.isscalar(indices):  
-                    indices = np.array([indices]) # Convert single integer to array
+            if k_neighbours == 1:
+                indices = np.atleast_2d(indices).T
 
-                neighbour_indices = neighbour_nodes[indices]  # Map back to global node indices
-
-                # Add edges
-                for j in neighbour_indices:
+            # Vectorized mapping of indices
+            for i, idx_list in zip(layer_nodes, indices):
+                idx_list = np.atleast_1d(idx_list)
+                for j in neighbour_nodes[idx_list]:
                     G.add_edge(i, j)
 
 
     print(f"Final graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
-    return G, hitID_dict, tid_dict, traj_p_dict, traj_pt_dict, traj_lambda_dict, traj_phi_dict
+    return G, node_truth_info
 
 batch_graphs = []
-batch_hitID_dicts = []
-batch_tid_dicts = []
-batch_p_dicts = []
-batch_pt_dicts = []
-batch_lambda_dicts = []
-batch_phi_dicts = []
+batch_truth_info = []
 
 
 for batch in batches:
-    G, hitID_dict, tid_dict, traj_p_dict, traj_pt_dict, traj_lambda_dict, traj_phi_dict = build_graph(batch)  # Unpack both returned values
+    G, truth_info = build_graph(batch)  # Unpack both returned values
     batch_graphs.append(G)  # Store the graph
-    batch_hitID_dicts.append(hitID_dict) # Store hitID_dict
-    batch_tid_dicts.append(tid_dict)  # Store tid_dict
-    batch_p_dicts.append(traj_p_dict)
-    batch_pt_dicts.append(traj_pt_dict)
-    batch_lambda_dicts.append(traj_lambda_dict)
-    batch_phi_dicts.append(traj_phi_dict)
+    batch_truth_info.append(truth_info)
+
+print(batch_truth_info[0][5])  # Truth data for node 5 in batch 0
 
 
 # Print number of edges after graph construction
@@ -220,7 +223,7 @@ for i, G in enumerate(batch_graphs):
 
 
 
-
+'''
 def plot_graph2D(G):
     pos = {i: (G.nodes[i]['gx'], G.nodes[i]['gy']) for i in G.nodes}  # 2D projection
     plt.figure(figsize=(10, 8))
@@ -268,9 +271,10 @@ def plot_graph3D(G):
 
 for i in range(min(3, len(batch_graphs))):
     plot_graph3D(batch_graphs[i])
-
 '''
-def extract_edge_features(G, tid_dict):
+
+
+def extract_edge_features(G, node_truth_info):
     """
     Extracts edge features directly from networkx graph.
     
@@ -294,10 +298,10 @@ def extract_edge_features(G, tid_dict):
             print(f"Warning: Edge ({u}, {v}) contains missing nodes")
             continue  # Skip missing nodes
 
-        if 'gx' not in G.nodes[u] or 'gx' not in G.nodes[v]:
-            print(f"Warning: Missing 'gx' attribute in nodes {u} or {v}")
-            continue  # Skip edges where node attributes are missing
-
+        required_attrs = ['gx', 'gy', 'gz', 'layer', 'station', 'ladder', 'chip']
+        if any(attr not in G.nodes[u] or attr not in G.nodes[v] for attr in required_attrs):
+            print(f"Warning: Missing attributes in nodes {u} or {v}")
+            continue
 
 
         # Get node features (assuming stored as attributes)
@@ -306,18 +310,22 @@ def extract_edge_features(G, tid_dict):
         
         # Compute feature difference
         feature_diff = source_feats - target_feats
+
+        categorical_feats = np.array([
+            G.nodes[u]['layer'], G.nodes[u]['station'], G.nodes[u]['ladder'], G.nodes[u]['chip'],
+            G.nodes[v]['layer'], G.nodes[v]['station'], G.nodes[v]['ladder'], G.nodes[v]['chip']
+        ])
+        
         
         # Concatenate to form edge feature vector
-        edge_feat = np.concatenate([source_feats, target_feats, feature_diff])  # (2C + C)
+        edge_feat = np.concatenate([source_feats, target_feats, feature_diff, categorical_feats])  # (2C + C)
 
-        if u not in tid_dict or v not in tid_dict:
-            print(f"Warning: Missing 'tid' in tid_dict for nodes {u} or {v}")
-            continue  # Skip this edge     
+        if u not in node_truth_info or v not in node_truth_info:
+            print(f"Warning: Missing truth info for nodes {u} or {v}")
+            continue   
 
         # Get ground truth labels (1 if same track, 0 otherwise)
-        label = 1 if tid_dict[u] == tid_dict[v] else 0
-        #print(f"Edge ({u}, {v}): tid_u = {tid_dict[u]}, tid_v = {tid_dict[v]}")
-        #print(label)
+        label = 1 if node_truth_info[u]['tid'] == node_truth_info[v]['tid'] else 0
         
         # Store results
         edge_features.append(edge_feat)
@@ -325,6 +333,7 @@ def extract_edge_features(G, tid_dict):
         edge_list.append((u, v))
 
     return np.array(edge_features), np.array(edge_labels).reshape(-1, 1), edge_list
+
 
 
 def edge_classifier(edge_features, channels=(32, 64), with_bn=True, activation='relu', name='edge_classifier'):
@@ -357,7 +366,7 @@ def edge_classifier(edge_features, channels=(32, 64), with_bn=True, activation='
     return keras.Model(inputs, edge_logits)
 
 # Define model structure
-edge_feats, _, _ = extract_edge_features(batch_graphs[0], batch_tid_dicts[0])  # Get first batch features
+edge_feats, _, _ = extract_edge_features(batch_graphs[0], batch_truth_info[0])  # Get first batch features
 model = edge_classifier(np.zeros((1, edge_feats.shape[1])))  # Use the correct shape as dummy input to initialize
 
 # Compile model
@@ -378,9 +387,9 @@ with tqdm(total=total_steps, desc="Training Progress", unit="batch") as pbar:
         epoch_losses = []  # Store batch losses for averaging
         epoch_accuracies = []
 
-        for batch_graph, tid_dict in zip(batch_graphs, batch_tid_dicts):
+        for batch_graph, node_truth_info in zip(batch_graphs, batch_truth_info):
             # Extract edge features & labels for the batch
-            edge_feats, edge_lbls, _ = extract_edge_features(batch_graph, tid_dict)
+            edge_feats, edge_lbls, _ = extract_edge_features(batch_graph, node_truth_info)
 
             # Skip empty batches
             if edge_feats.shape[0] == 0 or edge_lbls.shape[0] == 0:
@@ -408,5 +417,4 @@ with tqdm(total=total_steps, desc="Training Progress", unit="batch") as pbar:
 
 
 print("Training complete! Saving model...")
-model.save("trained_gnn_model3")
-'''
+model.save("trained_gnn_model4")
