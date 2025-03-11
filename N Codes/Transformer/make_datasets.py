@@ -432,7 +432,7 @@ def DataToTorch(hits_truth_indexed, training_data_directory, signal_no, train_ra
 
     # Save all splits as .pt and .csv
     for split_name, (features, labels, frame_nums) in data_splits.items():
-        save_tensors_and_csv(features, labels, frame_nums, training_data_directory, f"{signal_no}_sorted_{split_name}")
+        save_tensors_and_csv(features, labels, frame_nums, training_data_directory, f"{signal_no}_{split_name}")
 
     print(f"Saved splits:\n  Train: {len(data_splits['train'][0])}\n  Validation: {len(data_splits['val'][0])}\n  Test: {len(data_splits['test'][0])}")
 
@@ -588,7 +588,7 @@ def CompileTrirec(trirec_file):
     return all_frames_data
 
 def ProcessTrirecFiles(root_dir, output_dir):
-    """Process all ROOT files in a given directory and generate training data."""
+    """Process all ROOT files in a given directory and generate merged data of all trirec info."""
     
     os.makedirs(output_dir, exist_ok=True)
     
@@ -627,7 +627,7 @@ def ProcessTrirecFiles(root_dir, output_dir):
     return merged_trirec
 
 # Make the comparison data for the current alg
-def BuildComparisonData(merged_hits_truth_file, trirec_file, signal_no):
+def BuildComparisonData(merged_hits_truth_file, trirec_data, output_dir):
     """Function that takes the relevant data files for hits with their ground truth values, and assigned tracks,   
     and builds a single data file for evaluation.
     Input:
@@ -640,17 +640,12 @@ def BuildComparisonData(merged_hits_truth_file, trirec_file, signal_no):
 
     #Open the 2 different files and read the csvs
     merged_hits_truth_data = pd.read_csv(merged_hits_truth_file)
-    trirec_data = pd.read_csv(trirec_file)
 
     
     # Count no. of each tid in hit data, remove duplicates, filter out all with <4 hits (our condition 'reconstructable')
-    merged_hits_truth_data_filtered_columns = merged_hits_truth_data[[
-    "frameNumber","tid", "traj_type", "traj_px", "traj_py", "traj_pz", 
-    "traj_p", "traj_pt", "traj_lambda", "traj_phi", "p_bin", 
-    "lambda_bin", "phi_bin", "type_bin", "bin_index"]].copy()
-    merged_hits_truth_data_filtered_columns['num_hits'] = merged_hits_truth_data_filtered_columns.groupby('tid')['tid'].transform('count')
-    filtered_hits_truth_data = merged_hits_truth_data_filtered_columns[merged_hits_truth_data_filtered_columns['num_hits'] >= 4].drop_duplicates(subset=['tid'])
-    
+    merged_hits_truth_data['num_hits'] = merged_hits_truth_data.groupby('tid')['tid'].transform('count')
+    filtered_hits_truth_data = merged_hits_truth_data[merged_hits_truth_data['num_hits'] >= 4].drop_duplicates(subset=['tid'])
+
 
 
     #Count no. of reconstructed tracks for single tid in trirec file. Then remove duplicates (SEE NOTE)
@@ -674,11 +669,9 @@ def BuildComparisonData(merged_hits_truth_file, trirec_file, signal_no):
     # print("Final dataframe with merged info:")
     # print(df_merged_truths.head())  # Print first few rows to check
 
-    file_path = f"/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TrirecFiles/Outputs/merged_comparison_t2.csv"
-    all_merged.to_csv(file_path, index=False)
+    comparison_data_path = os.path.join(output_dir, "current_alg_comparison_data.csv")
+    all_merged.to_csv(comparison_data_path, index=False)
     return 
-
-
 
 
 #########################################################################################################################################
@@ -716,23 +709,18 @@ total_bins = num_p_bins * num_lam_bins *num_phi_bins * 2
 
 ################################## Hits Data Conversion and CSV making ########################################################
 
-root_dir = "/users/rk21159/DataFiles/SortFiles"
-output_dir = "/users/rk21159/DataFiles/TransformerDataFiles/TestSet1"
-
-trirec_dir = "/users/rk21159/DataFiles/TrirecFiles"
-output_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/OutputTest2/"
-
-
+root_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/RootFiles/"
+output_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TestSet4/Evaluation/"
+trirec_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TrirecFiles/"
 
 ProcessRootFiles(root_dir, output_dir, p_bins, lam_bins, phi_bins, q_mapping)
 
+## When you are going to compile evaluation, and test current algorithm:
+merged_trirec = ProcessTrirecFiles(trirec_dir, output_dir) #NOTE: Run this when you need to compile the extracting 
+merged_hits_truth_data = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TestSet4/Evaluation/merged_test_truths_shuffled.csv" 
+#NOTE: make sure the path for merged_hits_truth_data is that where the ProcessRootFiles will save the eval merged_hits_truth_data file.
 
-### When you are going to compile evaluation, and test current algorithm:
-
-#merged_trirec = ProcessTrirecFiles(trirec_dir, output_dir) #NOTE: Run this when you need to compile the extracting 
-# merged_hits_truth_data = "/path" #Should really be an eval set
-# trirec_file = "/path"
-# BuildComparisonData()
+BuildComparisonData(merged_hits_truth_data, merged_trirec, output_dir)
 
 
 # if __name__ == "__main__":
