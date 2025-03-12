@@ -222,7 +222,8 @@ def EfficiencyTrackLengthPlot(data_file):
     reconstructed_tracks_per_hit = grouped_data_tracks['true_track'].sum() # Total tracks per group - Only counts where a reconstruction was made.
     
     efficiency_all = reconstructed_tracks_per_hit / total_tracks_per_length #Efficiency for all recon tracks
-    
+    print(efficiency_all)
+
     plt.figure(figsize=(10, 6))
     plt.bar(efficiency_all.index, efficiency_all.values, color='blue', edgecolor = 'black', label='Efficiency')
     plt.xlabel("Track Length", fontsize=14)
@@ -277,6 +278,23 @@ def FakeRateTrackLengthPlot(data_file, num_hits_x):
     return fake_rate 
 
 
+def calculate_fake_rate(predicted_tracks_file):
+    """Calculate the fake rate from the predicted tracks CSV file."""
+    predicted_tracks = pd.read_csv(predicted_tracks_file)
+    
+    # Count tracks where correct_track = 0
+    fake_tracks = (predicted_tracks["correct_track"] == 0).sum()
+    
+    # Total number of tracks
+    total_tracks = len(predicted_tracks)
+    
+    # Compute fake rate
+    fake_rate = fake_tracks / total_tracks if total_tracks > 0 else 0
+    print(f"\n Fake Rate: {fake_rate:.4f} ({fake_tracks}/{total_tracks})")
+
+
+
+
 
 
 ##########################################################################################################################################
@@ -317,3 +335,15 @@ EfficiencyTrackLengthPlot(merged_tracks)
 # RatioLongToShortTracks(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits_x = 4)
 
 # FakeRateLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 2, p_type = 'traj_p', num_hits_x = 4, fake_measure = 'harsh') #Harsh = non absolute true = fake, lenient = mc_prime:0 AND mc measure:0
+
+# Calculate total efficiency
+total_true_tracks = merged_tracks["true_track"].sum()
+total_tracks = len(merged_tracks)
+
+total_efficiency = total_true_tracks / total_tracks if total_tracks > 0 else 0
+print(f"\n GNN Total Efficiency: {total_efficiency:.4f} ({total_true_tracks}/{total_tracks})")
+
+
+predicted_tracks_file = "ProcessedData/signal1_96_32652/reconstructed_tracks/predicted_tracks3.csv"
+calculate_fake_rate(predicted_tracks_file)
+
