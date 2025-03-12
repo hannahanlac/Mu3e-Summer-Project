@@ -206,7 +206,7 @@ def build_graph(batch, k_neighbours=5):
                     G.add_edge(i, j)
 
 
-    print(f"Batch Number: {batch['frame_array'][0]}/{len(batches)}, {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+    print(f"Graph Batch Number: {batch['frame_array'][0]}/{len(batches)-1}, {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
     return G, node_truth_info
 
@@ -475,11 +475,11 @@ def save_tracks(batch_tracks, output_dir="output"):
     df = pd.DataFrame(all_tracks)
 
     # Save to CSV
-    csv_path = "ProcessedData/signal1_96_32652/reconstrcted_tracks/predicted_tracks.csv"
+    csv_path = "ProcessedData/signal1_96_32652/reconstrcted_tracks/predicted_tracks3.csv"
     df.to_csv(csv_path, index=False)
 
     # Save to Parquet
-    parquet_path = "ProcessedData/signal1_96_32652/reconstrcted_tracks/predicted_tracks.parquet"
+    parquet_path = "ProcessedData/signal1_96_32652/reconstrcted_tracks/predicted_tracks3.parquet"
     table = pa.Table.from_pandas(df)
     pq.write_table(table, parquet_path)
 
