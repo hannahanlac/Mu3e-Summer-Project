@@ -49,7 +49,7 @@ def load_data(file_path):
     return awk_array
 
 
-file_path = 'ProcessedData/signal1_96_32652/train_data/train_data.parquet'
+file_path = 'ProcessedData/signal1_96_32652/test_data/test_data.parquet'
 awk_data = load_data(file_path)
 
 
@@ -70,7 +70,7 @@ def batch_data(awk_array, frames_per_batch=1):
 
         batches.append(batch)
 
-    print(batches[0][72]['layer_array']) 
+    print(batches[0][30]['layer_array']) 
     # Prints the value associated with layer_array for hit indexed number 72 in frame 0 / batch 0
 
     return batches
@@ -475,11 +475,11 @@ def save_tracks(batch_tracks, output_dir="output"):
     df = pd.DataFrame(all_tracks)
 
     # Save to CSV
-    csv_path = "ProcessedData/signal1_96_32652/reconstrcted_tracks/predicted_tracks3.csv"
+    csv_path = "ProcessedData/signal1_96_32652/reconstructed_tracks/predicted_tracks3.csv"
     df.to_csv(csv_path, index=False)
 
     # Save to Parquet
-    parquet_path = "ProcessedData/signal1_96_32652/reconstrcted_tracks/predicted_tracks3.parquet"
+    parquet_path = "ProcessedData/signal1_96_32652/reconstructed_tracks/predicted_tracks3.parquet"
     table = pa.Table.from_pandas(df)
     pq.write_table(table, parquet_path)
 
