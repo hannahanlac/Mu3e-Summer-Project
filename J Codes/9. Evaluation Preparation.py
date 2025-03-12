@@ -55,15 +55,14 @@ grouped_tracks = merged_tracks.groupby("tid_array").agg(
 # Count unique hits per tid
 grouped_tracks["num_hits_y"] = grouped_tracks["hit_IDs"].apply(len)
 
+grouped_tracks["true_track"] = grouped_tracks["hit_IDs"].apply(lambda x: 1 if len(x) > 0 else 0)
+
 # Reset index
 grouped_tracks.reset_index(inplace=True)
 
-final_output_path = os.path.join(output_dir, "NickGroup5.csv")
+final_output_path = os.path.join(output_dir, "NickGroup6.csv")
 grouped_tracks.to_csv(final_output_path, index=False)
 
 print(f"Clustered tracks saved to {final_output_path}")
-
-
-#merged_tracks.drop(columns=['frameNumber_y'], inplace=True)
 
 
