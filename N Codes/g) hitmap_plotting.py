@@ -2,6 +2,8 @@ import pandas as pd
 import matplotlib.pyplot as plt 
 import numpy as np
 import hist 
+from matplotlib.ticker import MaxNLocator
+
 
 
 def frameHitPlotting (frame_hits_data, layer, frame_number, station):
@@ -246,6 +248,85 @@ def layerHistPlottingFast (frame_hits_data):
    plt.show()
 
 
+def frameHitPlottingMerged(frame_hits_data, frame_number):
+    """Function for plotting heatmaps for all layers with correct labels and spacing."""
+
+    layers = [1, 2, 3, 4]
+    stations = [0, 0, "all", "all"]
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+    fig.suptitle("Mu3e Detector Heatmaps", fontsize=18)
+
+    layer_config = {
+        1: (8, 6),   # (Ladders, Chips)
+        2: (10, 6),
+        3: (24, 17),
+        4: (28, 18)
+    }
+
+    pixel_size_x, pixel_size_y = 256, 250
+
+    for i, (layer, station) in enumerate(zip(layers, stations)):
+        ax = axes[i // 2, i % 2]
+        ladder_max, chip_max = layer_config[layer]
+        total_chips_central = chip_max
+        total_chips = 3 * chip_max
+
+        layer_n_hits = frame_hits_data[frame_hits_data['layer'] == layer]
+
+        if station == 0:
+            layer_n_hits = layer_n_hits[layer_n_hits['station'] == 0]
+        elif station == "all":
+            chip_offset = layer_n_hits['station'].map({1: 0, 0: total_chips_central, 2: 2 * total_chips_central})
+            chip_max = total_chips
+        else:
+            layer_n_hits = layer_n_hits[layer_n_hits['station'] == station]
+
+        if station in [0, 1, 2]:
+            hit_x_positions_absolute = layer_n_hits['pixelx'] + (layer_n_hits['chip'] - 1) * pixel_size_x
+        else:
+            hit_x_positions_absolute = layer_n_hits['pixelx'] + ((layer_n_hits['chip'] - 1) + chip_offset) * pixel_size_x
+
+        hit_y_positions_absolute = layer_n_hits['pixely'] + (layer_n_hits['ladder'] - 1) * pixel_size_y
+
+        bin_size_x, bin_size_y = pixel_size_x / 2, pixel_size_y / 2
+        x_bins = int(chip_max * pixel_size_x / bin_size_x)
+        y_bins = int(ladder_max * pixel_size_y / bin_size_y)
+
+        heatmap, x_edges, y_edges = np.histogram2d(
+            hit_x_positions_absolute, hit_y_positions_absolute, bins=[x_bins, y_bins]
+        )
+
+        im = ax.imshow(
+            heatmap.T, cmap='hot', interpolation='nearest', origin='lower',
+            extent=[0, chip_max * pixel_size_x, 0, ladder_max * pixel_size_y]
+        )
+
+        ax.set_title(f"Layer {layer} Heatmap", fontsize=14, pad=15)
+        ax.set_xlabel("Chip")
+        ax.set_ylabel("Ladder")
+
+        # Dynamically set correct ticks
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True, prune='both'))
+        ax.yaxis.set_major_locator(MaxNLocator(integer=True, prune='both'))
+
+        ax.grid(visible=True, linestyle='--', linewidth=0.5, alpha=0.7)
+        for spine in ax.spines.values():
+            spine.set_edgecolor('black')
+            spine.set_linewidth(1)
+
+    plt.subplots_adjust(hspace=0.3, wspace=0.25)
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    plt.show()
+
+
+
+
+
+
+
+####################################################
+
 file_name = "/app/ProcessedData/signal1_96_32652/csv/hits_data_signal1_96_32652.csv"
 frame_hits_data = pd.read_csv(file_name)
 
@@ -260,6 +341,8 @@ frameHitPlotting(frame_hits_data, 2, frame_number, 0)
 # frameHitPlotting(frame_hits_data, 4, frame_number, 2)
 frameHitPlotting(frame_hits_data, 3, frame_number, "all")
 frameHitPlotting(frame_hits_data, 4, frame_number, "all")
+
+frameHitPlottingMerged(frame_hits_data, frame_number)
 
 #frameHitPlotting(frame_hits_data, 1, frame_number, "all")
 #frameHitPlotting(frame_hits_data, 2, frame_number, "all")
