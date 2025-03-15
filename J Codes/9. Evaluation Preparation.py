@@ -1,8 +1,7 @@
 import pandas as pd
 import ast
 
-
-###################### Predicted Tracks ##########################
+###################### Predicted Tracks - Condition 1 ##########################
 
 # Load the CSV file
 file_path = 'ProcessedData/signal1_96_32652/reconstructed_tracks/predicted_tracks4.csv'
@@ -30,14 +29,13 @@ threshold, inclusive = threshold_mapping[command]
 
 print(f"Applying threshold {command} with inclusivity: {inclusive}")
 
-# Apply the function to each row and create a new column 'correct_tracks'
-df['correct_tracks'] = df['tids'].apply(lambda x: check_correct_tracks(x, threshold, inclusive))
+# Apply the function to each row and create a new column 'correct_track'
+df['correct_track'] = df['tids'].apply(lambda x: check_correct_tracks(x, threshold, inclusive))
 
 print(f"Number of tracks before filtering: {len(df)}")
-# Drop rows where 'correct_tracks' is 0
-df = df[df['correct_tracks'] == 1]
+# Drop rows where 'correct_track' is 0
+df = df[df['correct_track'] == 1]
 print(f"Number of tracks after filtering: {len(df)}")
-
 
 # Update the 'tids' column to a single integer based on the given conditions
 def update_tid_column(tids_str, threshold, inclusive=False):
@@ -66,58 +64,55 @@ test_data_file_path = 'ProcessedData/signal1_96_32652/test_data/test_data.parque
 print("Loading test data parquet file...")
 test_data_df = pd.read_parquet(test_data_file_path, columns=["frame_array", "tid_array", "traj_p", "traj_pt", "traj_lambda", "traj_phi"])
 
+# Calculate num_hits_x for each tid_array
+test_data_df['num_hits_x'] = test_data_df.groupby('tid_array')['tid_array'].transform('count')
+
+# Keep only unique tids and drop rows with less than 4 hits
+test_data_df = test_data_df[test_data_df['num_hits_x'] >= 4].drop_duplicates(subset=['tid_array'])
+
 # Sort the test data by unique tid_array
 sorted_test_data_df = test_data_df.sort_values(by="tid_array")
+
+####################### Merging Test File and Predicted Tracks #################################
 
 print("Merging data files on tid...")
 # Merge the datasets on the tid_array column
 merged_df = pd.merge(sorted_test_data_df, df, left_on="tid_array", right_on="tid", how="left")
 
+merged_df = merged_df.drop(columns=['tid'])
+
 # Rename columns to match the desired output
 merged_df.rename(columns={'tid_array': 'tid'}, inplace=True)
 
-# Ensure the columns exist before attempting to fill missing values
-if 'hit_IDs' not in merged_df:
-    merged_df['hit_IDs'] = '[]'
-if 'num_hits_x' not in merged_df:
-    merged_df['num_hits_x'] = 0
-if 'num_hits_y' not in merged_df:
-    merged_df['num_hits_y'] = 0
+# Calculate num_hits_y as the number of hits in hit_IDs
+merged_df['num_hits_y'] = merged_df['hit_IDs'].apply(lambda x: len(ast.literal_eval(x)) if pd.notna(x) else 0)
 
-# Fill NaN values in the merged DataFrame with default values
-# Fill NaN values in the merged DataFrame with default values
+# Debug print to check columns after merge
+print("Columns after merge:", merged_df.columns)
+
+# Ensure the columns exist before attempting to fill missing values
 merged_df['hit_IDs'] = merged_df['hit_IDs'].fillna('[]')
 merged_df['num_hits_x'] = merged_df['num_hits_x'].fillna(0)
 merged_df['num_hits_y'] = merged_df['num_hits_y'].fillna(0)
+merged_df['correct_track'] = merged_df['correct_track'].fillna(0)
 
-#merged_df['true_track'] = merged_df.apply(lambda row: 1 if row['num_hits_y'] > 0 else 0, axis=1)
+# Drop unnecessary columns
+columns_to_keep = ["frame_array", "tid", "num_hits_x", "traj_p", "traj_pt", "traj_lambda", "traj_phi", "hit_IDs", "num_hits_y", "correct_track"]
+merged_df = merged_df[columns_to_keep]
+
+print("Columns after filter:", merged_df.columns)
+
+# Convert columns to appropriate data types
+merged_df['num_hits_x'] = merged_df['num_hits_x'].astype(int)
+merged_df['num_hits_y'] = merged_df['num_hits_y'].astype(int)
+merged_df['correct_track'] = merged_df['correct_track'].astype(int)
 
 # Check the size of the DataFrame
 print(f"Size of merged DataFrame: {merged_df.shape}")
 
 print("Saving CSV...")
-# Save the merged dataset to a new CSV file
+# Save the final DataFrame to a new CSV file
 output_file_path = f'ProcessedData/signal1_96_32652/evaluation_prep/merged_tracks_{command}.csv'
-#merged_df.to_csv(output_file_path, index=False)
-
-# Save the CSV with progress indicators
-chunk_size = 10000  # Number of rows per chunk
-num_chunks = len(merged_df) // chunk_size + 1
-
-with open(output_file_path, 'w') as f:
-    for i, chunk in enumerate(range(0, len(merged_df), chunk_size)):
-        merged_df.iloc[chunk:chunk + chunk_size].to_csv(f, header=(i == 0), index=False)
-        print(f"Saved chunk {i + 1} of {num_chunks}")
-
+merged_df.to_csv(output_file_path, index=False)
 
 print(f"Merged CSV file saved to {output_file_path}")
-
-
-
-"""
-# Save the updated DataFrame to a new CSV file
-output_file_path = f'ProcessedData/signal1_96_32652/evaluation_prep/predicted_tracks4_merged{command}.csv'
-df.to_csv(output_file_path, index=False)
-
-print(f"Updated CSV file saved to {output_file_path}")
-"""
