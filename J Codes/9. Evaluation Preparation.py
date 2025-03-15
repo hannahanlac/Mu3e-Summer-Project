@@ -1,58 +1,123 @@
-import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd 
-import matplotlib.ticker as ticker
-import matplotlib.colors as mcolors
-import os
+import pandas as pd
 import ast
 
-# Import test data file
-test_data = pd.read_parquet('ProcessedData/signal1_96_32652/test_data/test_data.parquet')
 
-# Specify which data columns want to keep
-test_data_columns = test_data[[
-"frame_array","tid_array", "traj_p", "traj_pt", "traj_lambda", "traj_phi"]].copy()
+###################### Predicted Tracks ##########################
 
-# Count number of hit_IDs in each unique tid, drop any tracks with num hits < 4 (as not reconstructable - no use (unphysical/detector error))
-test_data_columns['num_hits_x'] = test_data_columns.groupby('tid_array')['tid_array'].transform('count')
-unique_reconstructable_tids = test_data_columns[test_data_columns['num_hits_x'] >= 4].drop_duplicates(subset=['tid_array']) 
+# Load the CSV file
+file_path = 'ProcessedData/signal1_96_32652/reconstructed_tracks/predicted_tracks4.csv'
+print("Loading CSV file...")
+df = pd.read_csv(file_path)
 
-###################################################
-
-# Import predicted tracks from GNN
-predicted_tracks = pd.read_csv('ProcessedData/signal1_96_32652/reconstructed_tracks/predicted_tracks3.csv')
-
-
-def TrackTruthSorting(group, truth_condition):
-    """Function that filters the predicted tracks based on the truth condition given. Either:
-        - Current_alg: All of the hits in the track must belong to the same particle
-        - 50/50: At least 50% hits from the same particle, at least 50% of particle hits in track
-        - 75/75 or 100/100: As for 50/50 but with increased percentages - stronger measures"""
-    
-    match_ratio = (group['predicted_bin_index'] == group['bin_index']).mean()
-    if truth_condition == 'current_alg':
-        correct_track = match_ratio == 1
-
-    elif truth_condition == '50/50':
-        correct_track = match_ratio > 0.5
-
-    elif truth_condition == '75/75':
-        correct_track = match_ratio > 0.75
-
-    elif truth_condition == '100/100':
-        correct_track = match_ratio == 1
-
-    if correct_track:
-            group['correct_track'] = 1
-            correct_track_tid = group['tid'].mode()[0]  # Finding the most common tid in the track - this is the tid the track represents
-            group['correct_track_tid'] = correct_track_tid 
-            group['num_tid_hits_in_track'] = (group['tid'] == group['correct_track_tid']).sum()  
+# Define the function to check the percentage of hits belonging to the same tid
+def check_correct_tracks(tids_str, threshold, inclusive=False):
+    tids = ast.literal_eval(tids_str)
+    tid_counts = pd.Series(tids).value_counts()
+    max_count = tid_counts.max()
+    if inclusive:
+        return 1 if max_count / len(tids) >= threshold else 0
     else:
-            group['correct_track'] = 0
-            #group['tids_in_track'] = ', '.join(map(str, group['tid'].unique())) #Not sure I actually need this
+        return 1 if max_count / len(tids) > threshold else 0
 
-    group['num_hits_in_track'] = group['hitIndex'].nunique()
-    return group
+# Define the threshold percentage
+threshold_mapping = {
+    '100': (1.00, True),
+    '75': (0.75, False),
+    '50': (0.50, False)
+}
+command = '100'  # Change this to '100', '75', or '50' as needed
+threshold, inclusive = threshold_mapping[command]
+
+print(f"Applying threshold {command} with inclusivity: {inclusive}")
+
+# Apply the function to each row and create a new column 'correct_tracks'
+df['correct_tracks'] = df['tids'].apply(lambda x: check_correct_tracks(x, threshold, inclusive))
+
+print(f"Number of tracks before filtering: {len(df)}")
+# Drop rows where 'correct_tracks' is 0
+df = df[df['correct_tracks'] == 1]
+print(f"Number of tracks after filtering: {len(df)}")
+
+
+# Update the 'tids' column to a single integer based on the given conditions
+def update_tid_column(tids_str, threshold, inclusive=False):
+    tids = ast.literal_eval(tids_str)
+    tid_counts = pd.Series(tids).value_counts()
+    if inclusive:
+        return tid_counts.index[0]  # All tids are the same
+    else:
+        max_tid = tid_counts.idxmax()
+        max_count = tid_counts.max()
+        if max_count / len(tids) > threshold:
+            return max_tid
+        else:
+            return None
+
+# Apply the update_tid_column function
+df['tid'] = df['tids'].apply(lambda x: update_tid_column(x, threshold, inclusive))
+
+# Drop the original 'tids' column
+df = df.drop(columns=['tids'])
+
+####################### Test Data File #############################
+
+# Load the test data parquet file and keep only the specified columns
+test_data_file_path = 'ProcessedData/signal1_96_32652/test_data/test_data.parquet'
+print("Loading test data parquet file...")
+test_data_df = pd.read_parquet(test_data_file_path, columns=["frame_array", "tid_array", "traj_p", "traj_pt", "traj_lambda", "traj_phi"])
+
+# Sort the test data by unique tid_array
+sorted_test_data_df = test_data_df.sort_values(by="tid_array")
+
+print("Merging data files on tid...")
+# Merge the datasets on the tid_array column
+merged_df = pd.merge(sorted_test_data_df, df, left_on="tid_array", right_on="tid", how="left")
+
+# Rename columns to match the desired output
+merged_df.rename(columns={'tid_array': 'tid'}, inplace=True)
+
+# Ensure the columns exist before attempting to fill missing values
+if 'hit_IDs' not in merged_df:
+    merged_df['hit_IDs'] = '[]'
+if 'num_hits_x' not in merged_df:
+    merged_df['num_hits_x'] = 0
+if 'num_hits_y' not in merged_df:
+    merged_df['num_hits_y'] = 0
+
+# Fill NaN values in the merged DataFrame with default values
+# Fill NaN values in the merged DataFrame with default values
+merged_df['hit_IDs'] = merged_df['hit_IDs'].fillna('[]')
+merged_df['num_hits_x'] = merged_df['num_hits_x'].fillna(0)
+merged_df['num_hits_y'] = merged_df['num_hits_y'].fillna(0)
+
+#merged_df['true_track'] = merged_df.apply(lambda row: 1 if row['num_hits_y'] > 0 else 0, axis=1)
+
+# Check the size of the DataFrame
+print(f"Size of merged DataFrame: {merged_df.shape}")
+
+print("Saving CSV...")
+# Save the merged dataset to a new CSV file
+output_file_path = f'ProcessedData/signal1_96_32652/evaluation_prep/merged_tracks_{command}.csv'
+#merged_df.to_csv(output_file_path, index=False)
+
+# Save the CSV with progress indicators
+chunk_size = 10000  # Number of rows per chunk
+num_chunks = len(merged_df) // chunk_size + 1
+
+with open(output_file_path, 'w') as f:
+    for i, chunk in enumerate(range(0, len(merged_df), chunk_size)):
+        merged_df.iloc[chunk:chunk + chunk_size].to_csv(f, header=(i == 0), index=False)
+        print(f"Saved chunk {i + 1} of {num_chunks}")
+
+
+print(f"Merged CSV file saved to {output_file_path}")
 
 
 
+"""
+# Save the updated DataFrame to a new CSV file
+output_file_path = f'ProcessedData/signal1_96_32652/evaluation_prep/predicted_tracks4_merged{command}.csv'
+df.to_csv(output_file_path, index=False)
+
+print(f"Updated CSV file saved to {output_file_path}")
+"""

@@ -456,7 +456,7 @@ def save_tracks(batch_tracks, output_dir="output"):
         for track_idx, track in enumerate(tracks):
             track_tids = track["tids"]
 
-            correct_track = 1 if all(tid == track_tids[0] for tid in track_tids) else 0
+            #correct_track = 1 if all(tid == track_tids[0] for tid in track_tids) else 0
 
             all_tracks.append({
                 "batch": batch_idx,
@@ -468,22 +468,25 @@ def save_tracks(batch_tracks, output_dir="output"):
                 "traj_lambdas": track["traj_lambdas"],
                 "traj_phis": track["traj_phis"],
                 "num_hits": len(track["hit_IDs"]),
-                "correct_track": correct_track,
+                #"correct_track": correct_track,
             })
 
     # Convert to DataFrame
     df = pd.DataFrame(all_tracks)
 
     # Save to CSV
-    csv_path = "ProcessedData/signal1_96_32652/reconstructed_tracks/predicted_tracks3.csv"
+    csv_path = "ProcessedData/signal1_96_32652/reconstructed_tracks/predicted_tracks4.csv"
     df.to_csv(csv_path, index=False)
 
+    """
     # Save to Parquet
-    parquet_path = "ProcessedData/signal1_96_32652/reconstructed_tracks/predicted_tracks3.parquet"
+    parquet_path = "ProcessedData/signal1_96_32652/reconstructed_tracks/predicted_tracks4.parquet"
     table = pa.Table.from_pandas(df)
     pq.write_table(table, parquet_path)
+    """
 
-    print(f"Tracks saved to {csv_path} and {parquet_path}")
+    #print(f"Tracks saved to {csv_path} and {parquet_path}")
+    print(f"Tracks saved to {csv_path}")
 
 
 # Save the tracks
