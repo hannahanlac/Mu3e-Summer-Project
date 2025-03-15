@@ -14,9 +14,10 @@ def check_correct_tracks(tids_str, threshold, inclusive=False):
     tid_counts = pd.Series(tids).value_counts()
     max_count = tid_counts.max()
     if inclusive:
-        return 1 if max_count / len(tids) >= threshold else 0
+        correct_track = 1 if max_count / len(tids) >= threshold else 0
     else:
-        return 1 if max_count / len(tids) > threshold else 0
+        correct_track = 1 if max_count / len(tids) > threshold else 0
+    return correct_track, max_count
 
 # Define the threshold percentage
 threshold_mapping = {
@@ -24,19 +25,20 @@ threshold_mapping = {
     '75': (0.75, False),
     '50': (0.50, False)
 }
-command = '100'  # Change this to '100', '75', or '50' as needed
+command = '50'  # Change this to '100', '75', or '50' as needed
 threshold, inclusive = threshold_mapping[command]
 
 print(f"Applying threshold {command} with inclusivity: {inclusive}")
 
-# Apply the function to each row and create a new column 'correct_track'
-df['correct_track'] = df['tids'].apply(lambda x: check_correct_tracks(x, threshold, inclusive))
+# Apply the function to each row and create new columns 'correct_track' and 'num_tid_hits'
+df[['correct_track', 'num_tid_hits']] = df['tids'].apply(lambda x: check_correct_tracks(x, threshold, inclusive)).apply(pd.Series)
 
 print(f"Number of tracks before filtering: {len(df)}")
 # Drop rows where 'correct_track' is 0
 df = df[df['correct_track'] == 1]
 print(f"Number of tracks after filtering: {len(df)}")
 
+print("Flattening TIDs...")
 # Update the 'tids' column to a single integer based on the given conditions
 def update_tid_column(tids_str, threshold, inclusive=False):
     tids = ast.literal_eval(tids_str)
@@ -95,9 +97,10 @@ merged_df['hit_IDs'] = merged_df['hit_IDs'].fillna('[]')
 merged_df['num_hits_x'] = merged_df['num_hits_x'].fillna(0)
 merged_df['num_hits_y'] = merged_df['num_hits_y'].fillna(0)
 merged_df['correct_track'] = merged_df['correct_track'].fillna(0)
+merged_df['num_tid_hits'] = merged_df['num_tid_hits'].fillna(0)
 
 # Drop unnecessary columns
-columns_to_keep = ["frame_array", "tid", "num_hits_x", "traj_p", "traj_pt", "traj_lambda", "traj_phi", "hit_IDs", "num_hits_y", "correct_track"]
+columns_to_keep = ["frame_array", "tid", "num_hits_x", "traj_p", "traj_pt", "traj_lambda", "traj_phi", "hit_IDs", "num_hits_y", "num_tid_hits", "correct_track"]
 merged_df = merged_df[columns_to_keep]
 
 print("Columns after filter:", merged_df.columns)
@@ -106,6 +109,7 @@ print("Columns after filter:", merged_df.columns)
 merged_df['num_hits_x'] = merged_df['num_hits_x'].astype(int)
 merged_df['num_hits_y'] = merged_df['num_hits_y'].astype(int)
 merged_df['correct_track'] = merged_df['correct_track'].astype(int)
+merged_df['num_tid_hits'] = merged_df['num_tid_hits'].astype(int)
 
 # Check the size of the DataFrame
 print(f"Size of merged DataFrame: {merged_df.shape}")
