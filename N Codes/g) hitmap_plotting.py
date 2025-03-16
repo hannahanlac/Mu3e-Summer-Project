@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import hist 
 from matplotlib.ticker import MaxNLocator
+import matplotlib.gridspec as gridspec
 
 
 
@@ -254,8 +255,8 @@ def frameHitPlottingMerged(frame_hits_data, frame_number):
     layers = [1, 2, 3, 4]
     stations = [0, 0, "all", "all"]
 
-    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
-    fig.suptitle("Mu3e Detector Heatmaps", fontsize=18)
+    fig, axes = plt.subplots(2, 2, figsize=(18, 14))  # 🔥 Increased width for Layer 1 & 2
+    fig.suptitle("Mu3e Detector Heatmaps", fontsize=18, y=0.97)
 
     layer_config = {
         1: (8, 6),   # (Ladders, Chips)
@@ -302,21 +303,24 @@ def frameHitPlottingMerged(frame_hits_data, frame_number):
             extent=[0, chip_max * pixel_size_x, 0, ladder_max * pixel_size_y]
         )
 
-        ax.set_title(f"Layer {layer} Heatmap", fontsize=14, pad=15)
+        ax.set_title(f"Layer {layer} Heatmap", fontsize=14, pad=8)
         ax.set_xlabel("Chip")
         ax.set_ylabel("Ladder")
 
-        # Dynamically set correct ticks
-        ax.xaxis.set_major_locator(MaxNLocator(integer=True, prune='both'))
-        ax.yaxis.set_major_locator(MaxNLocator(integer=True, prune='both'))
-
-        ax.grid(visible=True, linestyle='--', linewidth=0.5, alpha=0.7)
+        # Remove subplot borders but keep axis labels
         for spine in ax.spines.values():
-            spine.set_edgecolor('black')
-            spine.set_linewidth(1)
+            spine.set_visible(False)
 
-    plt.subplots_adjust(hspace=0.3, wspace=0.25)
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
+        # Ensure ticks are within the visible range
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True, nbins=5, prune="both"))
+        ax.yaxis.set_major_locator(MaxNLocator(integer=True, nbins=5, prune="both"))
+
+        ax.set_xticks(sorted(set([0] + list(ax.get_xticks()))))
+        ax.set_yticks(sorted(set([0] + list(ax.get_yticks()))))
+
+    # Adjusted spacing:  
+    plt.subplots_adjust(hspace=0.38, wspace=0.3)  # 🔹 Widened space for Layer 1 & 2
+
     plt.show()
 
 
