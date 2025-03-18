@@ -2,17 +2,18 @@ import awkward as ak
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras.layers import BatchNormalization, Dense, Dropout
 from sklearn.utils import shuffle
 import os
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pandas as pd
-import matplotlib.pyplot as plt
 import networkx as nx
 from scipy.spatial import cKDTree
-from mpl_toolkits.mplot3d import Axes3D
 from tqdm import tqdm
-import logging
+
+model_path = "trained_gnn_model5"  # Path to saved model
+model = tf.keras.models.load_model(model_path)
+
 
 def load_data(file_path):
     table = pq.read_table(file_path)  # Load Parquet file as an Arrow table
@@ -25,7 +26,6 @@ def load_data(file_path):
 
     # Convert to a new Awkward array (all values now 1D)
     awk_array = ak.Array(flat_dict)
-
 
     # Debugging: Check the first few rows
     print(f"Loaded dataset: {len(awk_array['hit_ID'])} hits")
@@ -44,7 +44,7 @@ def load_data(file_path):
     return awk_array
 
 
-file_path = 'ProcessedData/signal1_95-99_32652/train_data/train_data.parquet'
+file_path = 'ProcessedData/signal1_95-99_32652/test_data/test_data.parquet'
 awk_data = load_data(file_path)
 
 
@@ -59,13 +59,10 @@ def batch_data(awk_array, frames_per_batch=1):
 
         # Print batch summary
         print(f"Batch {len(batches) + 1}: {len(selected_frames)} frames, {len(batch['hit_ID'])} hits, {batch}")
-        # Include the +1 because at time run this for i=0, len(batches) = 0 but we're currently building batch 1, therefore +1
-        #print(f"Frames in batch: {selected_frames}")
-
 
         batches.append(batch)
 
-    print(batches[0][5]['layer_array']) 
+    print(batches[0][3]['layer_array']) 
     # Prints the value associated with layer_array for hit indexed number 72 in frame 0 / batch 0
 
     return batches
@@ -73,7 +70,7 @@ def batch_data(awk_array, frames_per_batch=1):
 batches = batch_data(awk_data)
 
 selected_hit = batches[0][7]
-print(f"Hit 13 in Batch 0:")
+print(f"Hit 7 in Batch 0:")
 for key in selected_hit.fields:  # Iterate over all feature names
     print(f"{key}: {selected_hit[key]}")
 
@@ -112,12 +109,11 @@ def build_graph(batch, k_neighbours=5):
     layers, stations, ladders, chips = layers[valid_mask], stations[valid_mask], ladders[valid_mask], chips[valid_mask]
     hit_IDs, tids, traj_p, traj_pt, traj_lambda, traj_phi = hit_IDs[valid_mask], tids[valid_mask], traj_p[valid_mask], traj_pt[valid_mask], traj_lambda[valid_mask], traj_phi[valid_mask]
 
-
     # Stack into coordinate array
     coords = np.column_stack((gx, gy, gz))  # Alternative to vstack.T, shape (N, 3)
 
     # Debugging: Print the shape of the coordinates
-    print(f"Batch Number: {batch['frame_array'][0]}/{len(batches)}, Batch size: {len(batch['hit_ID'])}, Coords shape: {coords.shape}")
+    #print(f"Batch Number: {batch['frame_array'][0]}/{len(batches)}, Batch size: {len(batch['hit_ID'])}, Coords shape: {coords.shape}")
 
     # Ensure coords has shape (N, 3)
     if coords.shape[1] != 3:
@@ -145,14 +141,9 @@ def build_graph(batch, k_neighbours=5):
 
         try:
             G.add_node(i, gx=x, gy=y, gz=z, layer=layer, station=station, ladder=ladder, chip=chip)
-        
-
         except KeyError as e:
             print(f"Missing key when adding node {i}: {e}")
             continue
-
-####################
-
 
     # Dictionary grouping node indices by layer
     layer_indices = {layer: np.where(layers == layer)[0] for layer in np.unique(layers)}
@@ -189,89 +180,17 @@ def build_graph(batch, k_neighbours=5):
             for i in layer_nodes:
                 coord = coords[i]  # Get 3D position of the current node
                 
-            distances, indices = neighbour_tree.query(coords[layer_nodes], k=min(k_neighbours, len(neighbour_nodes)))
+                distances, indices = neighbour_tree.query(coord, k=min(k_neighbours, len(neighbour_nodes)))
 
-            if k_neighbours == 1:
-                indices = np.atleast_2d(indices).T
+                indices = np.atleast_1d(indices)  # Ensure indices is always iterable
 
-            # Vectorized mapping of indices
-            for i, idx_list in zip(layer_nodes, indices):
-                idx_list = np.atleast_1d(idx_list)
-                for j in neighbour_nodes[idx_list]:
-                    G.add_edge(i, j)
+                # Vectorized mapping of indices
+                for idx in indices:
+                    G.add_edge(i, neighbour_nodes[idx])
 
-
-    print(f"Final graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+    print(f"Graph Batch Number: {batch['frame_array'][0]}/{len(batches)-1}, {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
     return G, node_truth_info
-
-batch_graphs = []
-batch_truth_info = []
-
-
-for batch in batches:
-    G, truth_info = build_graph(batch)  # Unpack both returned values
-    batch_graphs.append(G)  # Store the graph
-    batch_truth_info.append(truth_info)
-
-print(batch_truth_info[0][5])  # Truth data for node 5 in batch 0
-
-
-# Print number of edges after graph construction
-for i, G in enumerate(batch_graphs):
-    print(f"Batch {i}: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
-
-
-
-'''
-def plot_graph2D(G):
-    pos = {i: (G.nodes[i]['gx'], G.nodes[i]['gy']) for i in G.nodes}  # 2D projection
-    plt.figure(figsize=(10, 8))
-    nx.draw(G, pos, node_size=20, edge_color='gray', alpha=0.5)
-    plt.xlabel('gx')
-    plt.ylabel('gy')
-    plt.title('Frame 0 Hit Graph')
-    plt.show()
-
-for i in range(min(3, len(batch_graphs))):
-    plot_graph2D(batch_graphs[i])
-
-def plot_graph3D(G):
-    
-    """Plots a 3D representation of the hit graph.
-
-    Args:
-        G: A NetworkX graph where nodes have 3D positions (gx, gy, gz)."""
-
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d')
-
-    # Extract node positions
-    pos = {i: (G.nodes[i]['gx'], G.nodes[i]['gy'], G.nodes[i]['gz']) for i in G.nodes}
-
-    # Plot nodes
-    xs, ys, zs = zip(*pos.values())  # Unpack coordinates
-    ax.scatter(xs, ys, zs, c='blue', marker='o', s=10, alpha=0.6, label="Hits")
-
-    # Plot edges
-    for edge in G.edges:
-        x_vals = [pos[edge[0]][0], pos[edge[1]][0]]
-        y_vals = [pos[edge[0]][1], pos[edge[1]][1]]
-        z_vals = [pos[edge[0]][2], pos[edge[1]][2]]
-        ax.plot(x_vals, y_vals, z_vals, c='gray', alpha=0.4)  # Draw edge
-
-    # Labels and styling
-    ax.set_xlabel('gx')
-    ax.set_ylabel('gy')
-    ax.set_zlabel('gz')
-    ax.set_title("Batch 0 3D Hit Graph Visualization")
-
-    plt.legend()
-    plt.show()
-
-for i in range(min(3, len(batch_graphs))):
-    plot_graph3D(batch_graphs[i])
-'''
 
 
 def extract_edge_features(G, node_truth_info):
@@ -287,13 +206,9 @@ def extract_edge_features(G, node_truth_info):
         edge_list (list): List of edges [(u, v), ...]
     """
     edge_features = []
-    edge_labels = []
     edge_list = []
 
     for u, v in G.edges():
-        """for node, attrs in G.nodes(data=True):
-            print(node, attrs)"""  # Check what attributes are actually present
-
         if u not in G.nodes or v not in G.nodes:
             print(f"Warning: Edge ({u}, {v}) contains missing nodes")
             continue  # Skip missing nodes
@@ -302,7 +217,6 @@ def extract_edge_features(G, node_truth_info):
         if any(attr not in G.nodes[u] or attr not in G.nodes[v] for attr in required_attrs):
             print(f"Warning: Missing attributes in nodes {u} or {v}")
             continue
-
 
         # Get node features (assuming stored as attributes)
         source_feats = np.array([G.nodes[u]['gx'], G.nodes[u]['gy'], G.nodes[u]['gz']])
@@ -316,105 +230,175 @@ def extract_edge_features(G, node_truth_info):
             G.nodes[v]['layer'], G.nodes[v]['station'], G.nodes[v]['ladder'], G.nodes[v]['chip']
         ])
         
-        
         # Concatenate to form edge feature vector
         edge_feat = np.concatenate([source_feats, target_feats, feature_diff, categorical_feats])  # (2C + C)
 
-        if u not in node_truth_info or v not in node_truth_info:
-            print(f"Warning: Missing truth info for nodes {u} or {v}")
-            continue   
-
-        # Get ground truth labels (1 if same track, 0 otherwise)
-        label = 1 if node_truth_info[u]['tid'] == node_truth_info[v]['tid'] else 0
-        
-        # Store results
         edge_features.append(edge_feat)
-        edge_labels.append(label)
         edge_list.append((u, v))
 
-    return np.array(edge_features), np.array(edge_labels).reshape(-1, 1), edge_list
+    return np.array(edge_features), edge_list
 
 
+# Store predictions in memory
+batch_predictions = []
 
-def edge_classifier(edge_features, channels=(32, 64), with_bn=True, activation='relu', name='edge_classifier'):
+with tqdm(total=len(batches), desc="Processing Batches", unit="batch") as pbar:
+    for batch_idx, batch in enumerate(batches):
+        G, node_truth_info = build_graph(batch)  # Build graph dynamically
+
+        edge_feats, edge_list = extract_edge_features(G, node_truth_info)
+
+        if edge_feats.shape[0] == 0:
+            batch_predictions.append({
+                "batch_idx": batch_idx,
+                "edges": [],
+                "scores": []
+            })
+        else:
+            predictions = model.predict_on_batch(edge_feats)
+
+            batch_predictions.append({
+                "batch_idx": batch_idx,
+                "edges": edge_list,
+                "scores": predictions.flatten().tolist()
+            })
+
+        pbar.update(1)
+
+print("Predictions stored in memory. Ready for post-processing!")
+
+# Example: Access predictions for the first batch
+print(f"Batch 0 Predictions: {batch_predictions[0]}")
+print(f"Batch 1 Predictions: {batch_predictions[1]}")
+print(f"Batch 2 Predictions: {batch_predictions[2]}")
+
+
+def construct_tracks(batches, batch_predictions, min_track_size=4):
     """
-    MLP-based edge classifier for edge features.
-
+    Constructs tracks from batch predictions, ensuring each track has one hit per layer.
+    
     Args:
-        edge_features: (E, 2C + C) Edge feature matrix
-        channels: Tuple defining the MLP output sizes
-        with_bn: Whether to use batch normalization
-        activation: Activation function
+        batches (list): List of batches.
+        batch_predictions (list): List of dictionaries containing edge scores.
+        min_track_size (int): Minimum number of hits in a valid track.
 
     Returns:
-        edge_logits: (E, 1) - Probability of being same track
+        batch_tracks (list): List of tracks for each batch.
     """
-    inputs = keras.Input(shape=(edge_features.shape[1],))
-    x = inputs
-    
-    for idx, channel in enumerate(channels):
-        x = keras.layers.Dense(channel, activation=None, kernel_initializer='he_normal', name=f"{name}_dense{idx}")(x)
+    batch_tracks = []
 
-        if with_bn:
-            x = keras.layers.BatchNormalization(name=f"{name}_bn{idx}")(x)
-        
-        x = keras.layers.Activation(activation, name=f"{name}_act{idx}")(x)
+    for batch_idx, pred in enumerate(batch_predictions):
+        edges, scores = pred["edges"], pred["scores"]
+        G, node_truth_info = build_graph(batches[batch_idx])  # Build graph dynamically for each batch
 
-    # Final classification layer (probability of being the same track)
-    edge_logits = keras.layers.Dense(1, activation='sigmoid', name=f"{name}_output")(x)
+        tracks = []  # List to store tracks
 
-    return keras.Model(inputs, edge_logits)
+        # Sort edges by descending score
+        scored_edges = sorted(zip(edges, scores), key=lambda x: x[1], reverse=True)
 
-# Define model structure
-edge_feats, _, _ = extract_edge_features(batch_graphs[0], batch_truth_info[0])  # Get first batch features
-model = edge_classifier(np.zeros((1, edge_feats.shape[1])))  # Use the correct shape as dummy input to initialize
-
-# Compile model
-model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-
-# Train model iteratively over batches
-num_epochs = 100  # Define number of epochs
-
-total_steps = num_epochs * len(batch_graphs)  # Total iterations across all epochs
-
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-logging.getLogger("tensorflow").setLevel(logging.ERROR)
-
-with tqdm(total=total_steps, desc="Training Progress", unit="batch") as pbar:
-    for epoch in range(num_epochs):
-        pbar.set_description(f"Epoch {epoch+1}/{num_epochs}")
-
-        epoch_losses = []  # Store batch losses for averaging
-        epoch_accuracies = []
-
-        for batch_graph, node_truth_info in zip(batch_graphs, batch_truth_info):
-            # Extract edge features & labels for the batch
-            edge_feats, edge_lbls, _ = extract_edge_features(batch_graph, node_truth_info)
-
-            # Skip empty batches
-            if edge_feats.shape[0] == 0 or edge_lbls.shape[0] == 0:
-                tqdm.write(f"Skipping empty batch at epoch {epoch+1}")
+        for (u, v), score in scored_edges:
+            if score < 0.9:  # Threshold for valid edges (tune as needed)
                 continue
 
-            # Convert to tensors
-            edge_feats_tensor = tf.convert_to_tensor(edge_feats, dtype=tf.float32)
-            edge_lbls_tensor = tf.convert_to_tensor(edge_lbls, dtype=tf.float32)
+            # DEBUG: Check if nodes exist in G before accessing them
+            if u not in G.nodes or v not in G.nodes:
+                print(f"Warning: Node {u} or {v} not found in batch {batch_idx}. Skipping this edge.")
+                continue  # Skip invalid edges
 
-            # Train the model on this batch
-            loss, acc = model.train_on_batch(edge_feats_tensor, edge_lbls_tensor)
-            #tqdm.write(f"Batch loss: {loss:.4f}, Batch accuracy: {acc:.4f}")
+            # Get layers of the two nodes
+            layer_u = G.nodes[u]["layer"]
+            layer_v = G.nodes[v]["layer"]
 
-            epoch_losses.append(loss)
-            epoch_accuracies.append(acc)
+            hitID_u = node_truth_info[u]["hit_ID"]
+            hitID_v = node_truth_info[v]["hit_ID"]
+            tid_u = node_truth_info[u]["tid"]
+            tid_v = node_truth_info[v]["tid"]
+            traj_p_u = node_truth_info[u]["traj_p"]
+            traj_p_v = node_truth_info[v]["traj_p"]
+            traj_pt_u = node_truth_info[u]["traj_pt"]
+            traj_pt_v = node_truth_info[v]["traj_pt"]
+            traj_lambda_u = node_truth_info[u]["traj_lambda"]
+            traj_lambda_v = node_truth_info[v]["traj_lambda"]
+            traj_phi_u = node_truth_info[u]["traj_phi"]
+            traj_phi_v = node_truth_info[v]["traj_phi"]
 
-            # Update the progress bar
-            pbar.set_postfix(loss=f"{loss:.4f}", acc=f"{acc:.4f}", epoch=epoch+1)
-            pbar.update(1)  # Move progress forward by one batch
+            # Find an existing track that can include this edge
+            added = False
+            for track in tracks:
+                track_layers = {G.nodes[n]["layer"] for n in track["nodes"]}
+                if layer_u not in track_layers or layer_v not in track_layers:
+                    track["nodes"].append(u)
+                    track["nodes"].append(v)
+                    track["hit_IDs"].append(hitID_u)
+                    track["hit_IDs"].append(hitID_v)
+                    track["tids"].extend([int(tid_u), int(tid_v)])
+                    track["traj_ps"].extend([int(traj_p_u), int(traj_p_v)])
+                    track["traj_pts"].extend([int(traj_pt_u), int(traj_pt_v)])
+                    track["traj_lambdas"].extend([int(traj_lambda_u), int(traj_lambda_v)])
+                    track["traj_phis"].extend([int(traj_phi_u), int(traj_phi_v)])
+                    added = True
+                    break
 
-        avg_loss = np.mean(epoch_losses)
-        avg_acc = np.mean(epoch_accuracies)
-        tqdm.write(f"Epoch {epoch+1} - Avg Loss: {avg_loss:.4f}, Avg Acc: {avg_acc:.4f}")
+            # If no existing track can accommodate this edge, create a new track
+            if not added:
+                tracks.append({
+                    "nodes": [u, v], 
+                    "hit_IDs": [hitID_u, hitID_v], 
+                    "tids": [tid_u, tid_v],
+                    "traj_ps": [traj_p_u, traj_p_v],
+                    "traj_pts": [traj_pt_u, traj_pt_v],
+                    "traj_lambdas": [traj_lambda_u, traj_lambda_v],
+                    "traj_phis": [traj_phi_u, traj_phi_v]
+                })
+
+        # Filter tracks to ensure they have at least one hit per layer and min size
+        valid_tracks = [track for track in tracks if len(track["nodes"]) >= min_track_size]
+
+        batch_tracks.append(valid_tracks)
+
+        print(f"Batch {batch_idx}: {len(valid_tracks)} valid tracks found")
+
+    return batch_tracks
 
 
-print("Training complete! Saving model...")
-model.save("trained_gnn_model5")
+# Run the function to extract valid tracks
+batch_tracks = construct_tracks(batches, batch_predictions)
+
+
+def save_tracks(batch_tracks, output_dir="ProcessedData/signal1_95-99_32652/reconstructed_tracks"):
+    """
+    Saves track data to CSV and Parquet format.
+
+    Args:
+        batch_tracks (list): List of tracks for each batch.
+        output_dir (str): Directory to save output files.
+    """
+
+    all_tracks = []
+
+    for batch_idx, tracks in enumerate(batch_tracks):
+        for track_idx, track in enumerate(tracks):
+            all_tracks.append({
+                "batch": batch_idx,
+                "track_id": track_idx,
+                "hit_IDs": track["hit_IDs"],
+                "tids": track["tids"],
+                "traj_ps": track["traj_ps"],
+                "traj_pts": track["traj_pts"],
+                "traj_lambdas": track["traj_lambdas"],
+                "traj_phis": track["traj_phis"],
+                "num_hits": len(track["hit_IDs"]),
+            })
+
+    # Convert to DataFrame
+    df = pd.DataFrame(all_tracks)
+
+    # Save to CSV
+    csv_path = os.path.join(output_dir, "predicted_tracks5.csv")
+    df.to_csv(csv_path, index=False)
+
+    print(f"Tracks saved to {csv_path}")
+
+
+# Save the tracks
+save_tracks(batch_tracks)

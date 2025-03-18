@@ -5,7 +5,7 @@ import os
 ###################### Predicted Tracks - Condition 1 ##########################
 
 # Load the CSV file
-file_path = 'ProcessedData/signal1_96_32652/reconstructed_tracks/predicted_tracks4.csv'
+file_path = 'ProcessedData/signal1_95-99_32652/reconstructed_tracks/predicted_tracks5.csv'
 print("Loading CSV file...")
 df = pd.read_csv(file_path)
 
@@ -26,7 +26,7 @@ threshold_mapping = {
     '75': (0.75, False),
     '50': (0.50, False)
 }
-command = '50/50'  # Change this to '100/100', '75/75', '50/50', etc. as needed
+command = '100/0'  # Change this to '100/100', '75/75', '50/50', etc. as needed
 first_threshold, first_inclusive = threshold_mapping[command.split('/')[0]]
 second_condition = command.split('/')[1]
 
@@ -64,7 +64,7 @@ df = df.drop(columns=['tids'])
 ####################### Test Data File #############################
 
 # Load the test data parquet file and keep only the specified columns
-test_data_file_path = 'ProcessedData/signal1_96_32652/test_data/test_data.parquet'
+test_data_file_path = 'ProcessedData/signal1_95-99_32652/test_data/test_data.parquet'
 print("Loading test data parquet file...")
 test_data_df = pd.read_parquet(test_data_file_path, columns=["frame_array", "tid_array", "traj_p", "traj_pt", "traj_lambda", "traj_phi"])
 
@@ -210,11 +210,11 @@ print("Saving CSV...")
 safe_command = str(command).replace("/", "-")
 
 # Ensure the directory exists
-output_directory = 'ProcessedData/signal1_96_32652/evaluation_prep'
+output_directory = 'ProcessedData/signal1_95-99_32652/evaluation_prep'
 os.makedirs(output_directory, exist_ok=True)
 
 # Save the final DataFrame to a new CSV file
-output_file_path = f'{output_directory}/predicted_tracks4_merged_{safe_command}_harsh.csv'
+output_file_path = f'{output_directory}/predicted_tracks5_merged_{safe_command}_harsh.csv'
 merged_df.to_csv(output_file_path, index=False)
 
 print(f"Merged CSV file saved to {output_file_path}")

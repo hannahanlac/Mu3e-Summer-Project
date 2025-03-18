@@ -313,7 +313,7 @@ def ProcessRootFiles(root_dir, output_dir):
     # Process merged data
     print("Linking all hits and truth data:")
     merged_hits_truth =  LinkHitsTruthData(merged_hits, merged_truth, signal_no="merged")
-    merged_csv_path = os.path.join(output_dir, "new_hits_data_signal1_96_32652.csv")
+    merged_csv_path = os.path.join(output_dir, "new_hits_data_signal1_95-99_32652.csv")
     merged_hits_truth.to_csv(merged_csv_path, index = False)
     print(f"Saved all root file merged hits and Truth data: {merged_csv_path}")
 
@@ -323,8 +323,8 @@ def ProcessRootFiles(root_dir, output_dir):
 
 ################################## Hits Data Conversion and CSV making ########################################################
 
-root_dir = "Simulation Data/nICK'S Special fOlder"
-output_dir = "ProcessedData/signal1_96_32652/csv"
+root_dir = "Simulation Data/v5.3"
+output_dir = "ProcessedData/signal1_95-99_32652/csv"
 
 
 

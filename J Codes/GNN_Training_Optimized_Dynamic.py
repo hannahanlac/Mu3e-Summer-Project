@@ -13,6 +13,7 @@ from scipy.spatial import cKDTree
 from mpl_toolkits.mplot3d import Axes3D
 from tqdm import tqdm
 import logging
+import time
 
 def load_data(file_path):
     table = pq.read_table(file_path)  # Load Parquet file as an Arrow table
@@ -25,7 +26,6 @@ def load_data(file_path):
 
     # Convert to a new Awkward array (all values now 1D)
     awk_array = ak.Array(flat_dict)
-
 
     # Debugging: Check the first few rows
     print(f"Loaded dataset: {len(awk_array['hit_ID'])} hits")
@@ -59,9 +59,6 @@ def batch_data(awk_array, frames_per_batch=1):
 
         # Print batch summary
         print(f"Batch {len(batches) + 1}: {len(selected_frames)} frames, {len(batch['hit_ID'])} hits, {batch}")
-        # Include the +1 because at time run this for i=0, len(batches) = 0 but we're currently building batch 1, therefore +1
-        #print(f"Frames in batch: {selected_frames}")
-
 
         batches.append(batch)
 
@@ -112,7 +109,6 @@ def build_graph(batch, k_neighbours=5):
     layers, stations, ladders, chips = layers[valid_mask], stations[valid_mask], ladders[valid_mask], chips[valid_mask]
     hit_IDs, tids, traj_p, traj_pt, traj_lambda, traj_phi = hit_IDs[valid_mask], tids[valid_mask], traj_p[valid_mask], traj_pt[valid_mask], traj_lambda[valid_mask], traj_phi[valid_mask]
 
-
     # Stack into coordinate array
     coords = np.column_stack((gx, gy, gz))  # Alternative to vstack.T, shape (N, 3)
 
@@ -145,14 +141,9 @@ def build_graph(batch, k_neighbours=5):
 
         try:
             G.add_node(i, gx=x, gy=y, gz=z, layer=layer, station=station, ladder=ladder, chip=chip)
-        
-
         except KeyError as e:
             print(f"Missing key when adding node {i}: {e}")
             continue
-
-####################
-
 
     # Dictionary grouping node indices by layer
     layer_indices = {layer: np.where(layers == layer)[0] for layer in np.unique(layers)}
@@ -189,89 +180,17 @@ def build_graph(batch, k_neighbours=5):
             for i in layer_nodes:
                 coord = coords[i]  # Get 3D position of the current node
                 
-            distances, indices = neighbour_tree.query(coords[layer_nodes], k=min(k_neighbours, len(neighbour_nodes)))
+                distances, indices = neighbour_tree.query(coord, k=min(k_neighbours, len(neighbour_nodes)))
 
-            if k_neighbours == 1:
-                indices = np.atleast_2d(indices).T
+                indices = np.atleast_1d(indices)  # Ensure indices is always iterable
 
-            # Vectorized mapping of indices
-            for i, idx_list in zip(layer_nodes, indices):
-                idx_list = np.atleast_1d(idx_list)
-                for j in neighbour_nodes[idx_list]:
-                    G.add_edge(i, j)
-
+                # Vectorized mapping of indices
+                for idx in indices:
+                    G.add_edge(i, neighbour_nodes[idx])
 
     print(f"Final graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
     return G, node_truth_info
-
-batch_graphs = []
-batch_truth_info = []
-
-
-for batch in batches:
-    G, truth_info = build_graph(batch)  # Unpack both returned values
-    batch_graphs.append(G)  # Store the graph
-    batch_truth_info.append(truth_info)
-
-print(batch_truth_info[0][5])  # Truth data for node 5 in batch 0
-
-
-# Print number of edges after graph construction
-for i, G in enumerate(batch_graphs):
-    print(f"Batch {i}: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
-
-
-
-'''
-def plot_graph2D(G):
-    pos = {i: (G.nodes[i]['gx'], G.nodes[i]['gy']) for i in G.nodes}  # 2D projection
-    plt.figure(figsize=(10, 8))
-    nx.draw(G, pos, node_size=20, edge_color='gray', alpha=0.5)
-    plt.xlabel('gx')
-    plt.ylabel('gy')
-    plt.title('Frame 0 Hit Graph')
-    plt.show()
-
-for i in range(min(3, len(batch_graphs))):
-    plot_graph2D(batch_graphs[i])
-
-def plot_graph3D(G):
-    
-    """Plots a 3D representation of the hit graph.
-
-    Args:
-        G: A NetworkX graph where nodes have 3D positions (gx, gy, gz)."""
-
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d')
-
-    # Extract node positions
-    pos = {i: (G.nodes[i]['gx'], G.nodes[i]['gy'], G.nodes[i]['gz']) for i in G.nodes}
-
-    # Plot nodes
-    xs, ys, zs = zip(*pos.values())  # Unpack coordinates
-    ax.scatter(xs, ys, zs, c='blue', marker='o', s=10, alpha=0.6, label="Hits")
-
-    # Plot edges
-    for edge in G.edges:
-        x_vals = [pos[edge[0]][0], pos[edge[1]][0]]
-        y_vals = [pos[edge[0]][1], pos[edge[1]][1]]
-        z_vals = [pos[edge[0]][2], pos[edge[1]][2]]
-        ax.plot(x_vals, y_vals, z_vals, c='gray', alpha=0.4)  # Draw edge
-
-    # Labels and styling
-    ax.set_xlabel('gx')
-    ax.set_ylabel('gy')
-    ax.set_zlabel('gz')
-    ax.set_title("Batch 0 3D Hit Graph Visualization")
-
-    plt.legend()
-    plt.show()
-
-for i in range(min(3, len(batch_graphs))):
-    plot_graph3D(batch_graphs[i])
-'''
 
 
 def extract_edge_features(G, node_truth_info):
@@ -291,9 +210,6 @@ def extract_edge_features(G, node_truth_info):
     edge_list = []
 
     for u, v in G.edges():
-        """for node, attrs in G.nodes(data=True):
-            print(node, attrs)"""  # Check what attributes are actually present
-
         if u not in G.nodes or v not in G.nodes:
             print(f"Warning: Edge ({u}, {v}) contains missing nodes")
             continue  # Skip missing nodes
@@ -302,7 +218,6 @@ def extract_edge_features(G, node_truth_info):
         if any(attr not in G.nodes[u] or attr not in G.nodes[v] for attr in required_attrs):
             print(f"Warning: Missing attributes in nodes {u} or {v}")
             continue
-
 
         # Get node features (assuming stored as attributes)
         source_feats = np.array([G.nodes[u]['gx'], G.nodes[u]['gy'], G.nodes[u]['gz']])
@@ -315,7 +230,6 @@ def extract_edge_features(G, node_truth_info):
             G.nodes[u]['layer'], G.nodes[u]['station'], G.nodes[u]['ladder'], G.nodes[u]['chip'],
             G.nodes[v]['layer'], G.nodes[v]['station'], G.nodes[v]['ladder'], G.nodes[v]['chip']
         ])
-        
         
         # Concatenate to form edge feature vector
         edge_feat = np.concatenate([source_feats, target_feats, feature_diff, categorical_feats])  # (2C + C)
@@ -333,7 +247,6 @@ def extract_edge_features(G, node_truth_info):
         edge_list.append((u, v))
 
     return np.array(edge_features), np.array(edge_labels).reshape(-1, 1), edge_list
-
 
 
 def edge_classifier(edge_features, channels=(32, 64), with_bn=True, activation='relu', name='edge_classifier'):
@@ -365,17 +278,36 @@ def edge_classifier(edge_features, channels=(32, 64), with_bn=True, activation='
 
     return keras.Model(inputs, edge_logits)
 
+
+# Determine the number of epochs based on the old training time
+# If 10 epochs for the old file took 30 minutes, and the new file is 5 times larger:
+old_training_time_per_epoch = 30 / 10  # minutes per epoch
+new_training_time_per_epoch = old_training_time_per_epoch * 5  # estimated
+
+# Let's assume you want to train for a maximum of 8 hours (480 minutes)
+max_training_time = 300  # in minutes
+num_epochs = int(max_training_time / new_training_time_per_epoch)
+
+print(f"Estimated number of epochs: {num_epochs}")
+
 # Define model structure
-edge_feats, _, _ = extract_edge_features(batch_graphs[0], batch_truth_info[0])  # Get first batch features
+edge_feats, _, _ = extract_edge_features(build_graph(batches[0])[0], build_graph(batches[0])[1])  # Get first batch features
 model = edge_classifier(np.zeros((1, edge_feats.shape[1])))  # Use the correct shape as dummy input to initialize
 
 # Compile model
 model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
-# Train model iteratively over batches
-num_epochs = 100  # Define number of epochs
+# Add EarlyStopping callback
+early_stopping = keras.callbacks.EarlyStopping(
+    monitor='loss',  # Monitor the loss
+    patience=5,      # Number of epochs with no improvement after which training will be stopped
+    restore_best_weights=True  # Restore the best weights after stopping
+)
 
-total_steps = num_epochs * len(batch_graphs)  # Total iterations across all epochs
+# Train model iteratively over batches
+total_steps = num_epochs * len(batches)  # Total iterations across all epochs
+best_loss = np.inf
+patience_counter = 0
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
@@ -387,9 +319,12 @@ with tqdm(total=total_steps, desc="Training Progress", unit="batch") as pbar:
         epoch_losses = []  # Store batch losses for averaging
         epoch_accuracies = []
 
-        for batch_graph, node_truth_info in zip(batch_graphs, batch_truth_info):
-            # Extract edge features & labels for the batch
-            edge_feats, edge_lbls, _ = extract_edge_features(batch_graph, node_truth_info)
+        for batch in batches:
+            # Build graph dynamically for each batch
+            G, node_truth_info = build_graph(batch)
+
+            # Extract edge features & labels
+            edge_feats, edge_lbls, _ = extract_edge_features(G, node_truth_info)
 
             # Skip empty batches
             if edge_feats.shape[0] == 0 or edge_lbls.shape[0] == 0:
@@ -402,19 +337,30 @@ with tqdm(total=total_steps, desc="Training Progress", unit="batch") as pbar:
 
             # Train the model on this batch
             loss, acc = model.train_on_batch(edge_feats_tensor, edge_lbls_tensor)
-            #tqdm.write(f"Batch loss: {loss:.4f}, Batch accuracy: {acc:.4f}")
 
             epoch_losses.append(loss)
             epoch_accuracies.append(acc)
 
-            # Update the progress bar
+            # Update progress bar
             pbar.set_postfix(loss=f"{loss:.4f}", acc=f"{acc:.4f}", epoch=epoch+1)
-            pbar.update(1)  # Move progress forward by one batch
+            pbar.update(1)
 
         avg_loss = np.mean(epoch_losses)
         avg_acc = np.mean(epoch_accuracies)
         tqdm.write(f"Epoch {epoch+1} - Avg Loss: {avg_loss:.4f}, Avg Acc: {avg_acc:.4f}")
 
+        # Check for early stopping
+        if avg_loss < best_loss:
+            best_loss = avg_loss
+            patience_counter = 0  # Reset patience counter
+        else:
+            patience_counter += 1
+
+        if patience_counter >= early_stopping.patience:
+            tqdm.write("Early stopping triggered. Restoring best model weights and stopping training.")
+            model.set_weights(early_stopping.best_weights)
+            break
 
 print("Training complete! Saving model...")
 model.save("trained_gnn_model5")
+

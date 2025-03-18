@@ -127,6 +127,18 @@ def Normalization(train_data,test_data):
         if key == 'chip_array':
             continue
 
+        if key == 'traj_p':
+            continue
+
+        if key == 'traj_pt':
+            continue
+
+        if key == 'traj_lambda':
+            continue
+
+        if key == 'traj_phi':
+            continue
+
         # Reshape to 2D for scaler
         train_array = train_array.reshape(-1, 1)
         train_array = scaler.fit_transform(train_array)
@@ -161,6 +173,18 @@ def Normalization(train_data,test_data):
         if key == 'chip_array':
             continue
 
+        if key == 'traj_p':
+            continue
+
+        if key == 'traj_pt':
+            continue
+
+        if key == 'traj_lambda':
+            continue
+
+        if key == 'traj_phi':
+            continue
+
         test_array = test_array.reshape(-1, 1)
         test_array = scaler.transform(test_array)
 
@@ -178,8 +202,8 @@ def Normalization(train_data,test_data):
 
 #Finally making the dataset
 def MakeDataset():
-    train_dir = "ProcessedData/signal1_96_32652/train_data"
-    test_dir = "ProcessedData/signal1_96_32652/test_data"
+    train_dir = "ProcessedData/signal1_95-99_32652/train_data"
+    test_dir = "ProcessedData/signal1_95-99_32652/test_data"
 
     if not os.path.exists(train_dir):
         os.makedirs(train_dir)
@@ -214,7 +238,7 @@ def MakeDataset():
     #Dictionary of padding values for each parameter
     #can change these padding values for physical/practical reasons as wish
 
-    signal_dir = "ProcessedData/signal1_96_32652/csv/new_hits_data_signal1_96_32652.csv"
+    signal_dir = "ProcessedData/signal1_95-99_32652/csv/new_hits_data_signal1_95-99_32652.csv"
     split_ratio = 0.75
 
 
