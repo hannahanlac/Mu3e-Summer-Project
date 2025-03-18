@@ -37,47 +37,47 @@ def EvaluateTracks(merged_data, output_dir, truth_condition):
 
 
     ####### EFFICIENCY CSV MAKING HERE ##########
-    correct_tracks = tracks_only[tracks_only['true_track'] == 1]
+    correct_tracks = tracks_only[tracks_only['correct_track'] == 1]
 
     # Merge unique tids with predicted tracks
     merged_tracks = unique_reconstructable_tids.merge(
         correct_tracks,
         left_on='tid',      
-        right_on='true_track_tid',              
+        right_on='correct_track_tid',              
         how='left'
         )
     merged_tracks.drop(columns=['frameNumber_y'], inplace=True)
 
     # Check 2nd part of the 50/50 etc conditions: Do the true tracks hold >50% of the tid hits? If not discard. 
     if truth_condition == '50/50':
-        merged_tracks['true_track'] = merged_tracks.apply(
-            lambda row: 0 if row['num_tid_hits_in_track'] < 0.5 * row['num_hits_x'] else row['true_track'],
+        merged_tracks['correct_track'] = merged_tracks.apply(
+            lambda row: 0 if row['num_tid_hits_in_track'] < 0.5 * row['num_hits_x'] else row['correct_track'],
             axis=1)
     elif truth_condition == '75/75':
-        merged_tracks['true_track'] = merged_tracks.apply(
-            lambda row: 0 if row['num_tid_hits_in_track'] < 0.75 * row['num_hits_x'] else row['true_track'],
+        merged_tracks['correct_track'] = merged_tracks.apply(
+            lambda row: 0 if row['num_tid_hits_in_track'] < 0.75 * row['num_hits_x'] else row['correct_track'],
             axis=1)
     elif truth_condition == '100/100':
-        merged_tracks['true_track'] = merged_tracks.apply(
-            lambda row: 0 if row['num_tid_hits_in_track'] <  row['num_hits_x'] else row['true_track'],
+        merged_tracks['correct_track'] = merged_tracks.apply(
+            lambda row: 0 if row['num_tid_hits_in_track'] <  row['num_hits_x'] else row['correct_track'],
             axis=1)
          
     # Save - This is csv of all reconstructable tracks, and the correct reconstructed ones.
     merged_tracks_path = os.path.join(output_dir, "unique_tids_and_predicted_tracks.csv") 
     merged_tracks.to_csv(merged_tracks_path, index=False)
 
-    # Update the tracks_only dataframe with the true_track values from the merge above. This now satisfies fully the 50/50 etc condition
+    # Update the tracks_only dataframe with the correct_track values from the merge above. This now satisfies fully the 50/50 etc condition
     mapping = (
-        merged_tracks[['true_track_tid', 'true_track']]
-        .drop_duplicates(subset='true_track_tid')
-        .set_index('true_track_tid')['true_track'])
-    tracks_only['true_track'] = tracks_only['true_track_tid'].map(mapping).fillna(tracks_only['true_track']).astype(int)
+        merged_tracks[['correct_track_tid', 'correct_track']]
+        .drop_duplicates(subset='correct_track_tid')
+        .set_index('correct_track_tid')['correct_track'])
+    tracks_only['correct_track'] = tracks_only['correct_track_tid'].map(mapping).fillna(tracks_only['correct_track']).astype(int)
     tracks_only_correct_path = os.path.join(output_dir, "predicted_tracks_evaluated.csv")
     tracks_only.to_csv(tracks_only_correct_path, index=False)
 
     # Calculate overall efficiency measure
     num_reconstructable_tracks = len(merged_tracks)
-    num_correct_tracks = (merged_tracks['true_track'] ==1).sum()
+    num_correct_tracks = (merged_tracks['correct_track'] ==1).sum()
     print(f"number of reconstructable tracks: {num_reconstructable_tracks}")
     print(f"number correct tracks:{num_correct_tracks}")
     overall_eff = (num_correct_tracks / num_reconstructable_tracks) *100
@@ -86,7 +86,7 @@ def EvaluateTracks(merged_data, output_dir, truth_condition):
 
     # Calculate overall Fake Rate
     num_reconstructed_tracks = len(tracks_only)
-    num_fake_tracks = (tracks_only['true_track']==0).sum()
+    num_fake_tracks = (tracks_only['correct_track']==0).sum()
     print(f"Total number of constructed tracks:{num_reconstructed_tracks}")
     print(f"Number of Fake Tracks:{num_fake_tracks}")
     overall_fake_rate = (num_fake_tracks/num_reconstructed_tracks) *100
@@ -102,24 +102,24 @@ def TrackTruthSorting(group, truth_condition):
     
     match_ratio = (group['predicted_bin_index'] == group['bin_index']).mean()
     if truth_condition == 'current_alg':
-        true_track = match_ratio == 1
+        correct_track = match_ratio == 1
 
     elif truth_condition == '50/50':
-        true_track = match_ratio > 0.5
+        correct_track = match_ratio > 0.5
 
     elif truth_condition == '75/75':
-        true_track = match_ratio > 0.75
+        correct_track = match_ratio > 0.75
 
     elif truth_condition == '100/100':
-        true_track = match_ratio == 1
+        correct_track = match_ratio == 1
 
-    if true_track:
-            group['true_track'] = 1
-            true_track_tid = group['tid'].mode()[0]  # Finding the most common tid in the track - this is the tid the track represents
-            group['true_track_tid'] = true_track_tid 
-            group['num_tid_hits_in_track'] = (group['tid'] == group['true_track_tid']).sum()  
+    if correct_track:
+            group['correct_track'] = 1
+            correct_track_tid = group['tid'].mode()[0]  # Finding the most common tid in the track - this is the tid the track represents
+            group['correct_track_tid'] = correct_track_tid 
+            group['num_tid_hits_in_track'] = (group['tid'] == group['correct_track_tid']).sum()  
     else:
-            group['true_track'] = 0
+            group['correct_track'] = 0
             #group['tids_in_track'] = ', '.join(map(str, group['tid'].unique())) #Not sure I actually need this
 
     group['num_hits_in_track'] = group['hitIndex'].nunique()
@@ -161,13 +161,13 @@ def EfficiencyLambdaMomentumPlot(data_file, min_lam, max_lam, lam_res, min_p, ma
         names=[ 'lambda_bin','momentum_bin']
     )
     grouped = data_file.groupby([ 'lambda_bin','momentum_bin']).agg(
-        total_tracks=('tid_array', 'count'),
-        true_tracks=('true_track', 'sum')
+        total_tracks=('tid', 'count'),
+        correct_tracks=('correct_track', 'sum')
     ).reindex(bin_index, fill_value=0)  # Ensure no bins dropped!!
 
 
     # Efficiency and efficiency matrix of correct dimensions
-    grouped['efficiency'] = grouped['true_tracks'] / grouped['total_tracks'].replace(0, np.nan)
+    grouped['efficiency'] = grouped['correct_tracks'] / grouped['total_tracks'].replace(0, np.nan)
     efficiency_matrix = grouped['efficiency'].unstack(fill_value=0)
 
     p_plot_name = 'p' if p_type == 'traj_p' else 'pt'
@@ -207,7 +207,7 @@ def EfficiencyTrackLengthPlot(data_file):
     print("Processing Efficiency Track Length Plot...")
 
     # Ensure required columns exist
-    required_columns = {'tid_array', 'num_hits_x', 'true_track'}
+    required_columns = {'tid', 'num_hits_x', 'correct_track'}
     missing_columns = required_columns - set(data_file.columns)
     if missing_columns:
         raise ValueError(f"Missing columns in data file: {missing_columns}")
@@ -218,8 +218,8 @@ def EfficiencyTrackLengthPlot(data_file):
 
     # Group data by 'hit_bin' and calculate efficiency for each bin
     grouped_data_tracks = data_file.groupby('hit_bin', observed=False)
-    total_tracks_per_length = grouped_data_tracks['tid_array'].count()
-    reconstructed_tracks_per_hit = grouped_data_tracks['true_track'].sum() # Total tracks per group - Only counts where a reconstruction was made.
+    total_tracks_per_length = grouped_data_tracks['tid'].count()
+    reconstructed_tracks_per_hit = grouped_data_tracks['correct_track'].sum() # Total tracks per group - Only counts where a reconstruction was made.
     
     efficiency_all = reconstructed_tracks_per_hit / total_tracks_per_length #Efficiency for all recon tracks
     print(efficiency_all)
@@ -253,7 +253,7 @@ def FakeRateTrackLengthPlot(data_file, num_hits_x):
     #grouped_data_tracklength = data_file.groupby('num_hits_in_track', observed=False)
 
     total_tracks_per_length = grouped_data_tracklength['predicted_bin_index'].count() #Again count total, including the duplicates
-    fake_tracks = grouped_data_tracklength['true_track'].agg(lambda x: (x==0).sum())
+    fake_tracks = grouped_data_tracklength['correct_track'].agg(lambda x: (x==0).sum())
     fake_rate = fake_tracks / total_tracks_per_length
 
 
@@ -302,7 +302,7 @@ def calculate_fake_rate(predicted_tracks_file):
 #output_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TestSet4/Evaluation/"
 
 
-merged_tracks = pd.read_csv('ProcessedData/signal1_96_32652/evaluation_prep/NickGroup6.csv')
+merged_tracks = pd.read_csv('ProcessedData/signal1_96_32652/evaluation_prep/predicted_tracks4_merged_75-75_harsh.csv')
 #merged_tracks = EvaluateTracks(merged_data, output_dir, truth_condition = 'current_alg')[0]
 #merged_tracks = EvaluateTracks(merged_data, output_dir, truth_condition = '50/50')[0]
 #merged_tracks = EvaluateTracks(merged_data, output_dir, truth_condition = '75/75')[0]
@@ -337,13 +337,13 @@ EfficiencyTrackLengthPlot(merged_tracks)
 # FakeRateLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 2, p_type = 'traj_p', num_hits_x = 4, fake_measure = 'harsh') #Harsh = non absolute true = fake, lenient = mc_prime:0 AND mc measure:0
 
 # Calculate total efficiency
-total_true_tracks = merged_tracks["true_track"].sum()
+total_correct_tracks = merged_tracks["correct_track"].sum()
 total_tracks = len(merged_tracks)
 
-total_efficiency = total_true_tracks / total_tracks if total_tracks > 0 else 0
-print(f"\n GNN Total Efficiency: {total_efficiency:.4f} ({total_true_tracks}/{total_tracks})")
+total_efficiency = total_correct_tracks / total_tracks if total_tracks > 0 else 0
+print(f"\n GNN Total Efficiency: {total_efficiency:.4f} ({total_correct_tracks}/{total_tracks})")
 
 
-predicted_tracks_file = "ProcessedData/signal1_96_32652/reconstructed_tracks/predicted_tracks3.csv"
-calculate_fake_rate(predicted_tracks_file)
+#predicted_tracks_file = "ProcessedData/signal1_96_32652/reconstructed_tracks/predicted_tracks3.csv"
+#calculate_fake_rate(predicted_tracks_file)
 
