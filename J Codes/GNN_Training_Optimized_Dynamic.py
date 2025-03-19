@@ -285,7 +285,7 @@ old_training_time_per_epoch = 30 / 10  # minutes per epoch
 new_training_time_per_epoch = old_training_time_per_epoch * 5  # estimated
 
 # Let's assume you want to train for a maximum of 8 hours (480 minutes)
-max_training_time = 300  # in minutes
+max_training_time = 450  # in minutes
 num_epochs = int(max_training_time / new_training_time_per_epoch)
 
 print(f"Estimated number of epochs: {num_epochs}")
@@ -362,5 +362,5 @@ with tqdm(total=total_steps, desc="Training Progress", unit="batch") as pbar:
             break
 
 print("Training complete! Saving model...")
-model.save("trained_gnn_model5")
+model.save("trained_gnn_model6")
 
