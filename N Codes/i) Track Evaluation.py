@@ -302,7 +302,7 @@ def calculate_fake_rate(predicted_tracks_file):
 #output_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TestSet4/Evaluation/"
 
 
-merged_tracks = pd.read_csv('ProcessedData/signal1_96_32652/evaluation_prep/predicted_tracks4_merged_75-75_harsh.csv')
+merged_tracks = pd.read_csv('ProcessedData/signal1_95-99_32652/evaluation_prep/predicted_tracks5_merged_100-0_harsh.csv')
 #merged_tracks = EvaluateTracks(merged_data, output_dir, truth_condition = 'current_alg')[0]
 #merged_tracks = EvaluateTracks(merged_data, output_dir, truth_condition = '50/50')[0]
 #merged_tracks = EvaluateTracks(merged_data, output_dir, truth_condition = '75/75')[0]

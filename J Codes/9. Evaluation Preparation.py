@@ -161,16 +161,22 @@ merged_df = merged_df.apply(track_build_errors, axis=1)
 # If want delete track build errors (simplest but harsh)
 def track_build_errors(row):
     if overconstruction_search and row['num_tid_hits'] > row['num_hits_x']:
-        return None  # Mark for deletion
+        return row.drop(row.index)  # Mark for deletion
     if duplicate_hit_search:
         hit_ids = ast.literal_eval(row['hit_IDs']) if isinstance(row['hit_IDs'], str) else row['hit_IDs']
         if len(hit_ids) != len(set(hit_ids)):
-            return None  # Mark for deletion
+            return row.drop(row.index)  # Mark for deletion
     return row
+
+print(f"Type of merged_df before track_build_errors: {type(merged_df)}")
 
 print("Applying track build errors...")
 merged_df = merged_df.apply(track_build_errors, axis=1).dropna()
 
+print(f"Type of merged_df after track_build_errors: {type(merged_df)}")
+
+# Remove any rows marked for deletion
+merged_df = merged_df[merged_df.apply(lambda x: not x.empty, axis=1)]
 
 ###################### Managing TID Duplicates ####################################
 
