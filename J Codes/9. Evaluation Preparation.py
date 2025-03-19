@@ -26,7 +26,7 @@ threshold_mapping = {
     '75': (0.75, False),
     '50': (0.50, False)
 }
-command = '100/0'  # Change this to '100/100', '75/75', '50/50', etc. as needed
+command = '50/50'  # Change this to '100/100', '75/75', '50/50', etc. as needed
 first_threshold, first_inclusive = threshold_mapping[command.split('/')[0]]
 second_condition = command.split('/')[1]
 
@@ -178,6 +178,13 @@ print(f"Type of merged_df after track_build_errors: {type(merged_df)}")
 # Remove any rows marked for deletion
 merged_df = merged_df[merged_df.apply(lambda x: not x.empty, axis=1)]
 
+# Save the DataFrame as fake_rate.csv
+safe_command = str(command).replace("/", "-")
+
+fake_rate_path = f'ProcessedData/signal1_95-99_32652/evaluation_prep/fake_rate_{safe_command}_harsh.csv'
+merged_df.to_csv(fake_rate_path, index=False)
+print(f"Fake rate CSV file saved to {fake_rate_path}")
+
 ###################### Managing TID Duplicates ####################################
 
 # Toggleable option
@@ -213,7 +220,6 @@ merged_df = tid_duplicates(merged_df, tid_duplicates_option)
 print(f"Size of merged DataFrame: {merged_df.shape}")
 
 print("Saving CSV...")
-safe_command = str(command).replace("/", "-")
 
 # Ensure the directory exists
 output_directory = 'ProcessedData/signal1_95-99_32652/evaluation_prep'

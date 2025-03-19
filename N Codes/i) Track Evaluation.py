@@ -6,125 +6,6 @@ import matplotlib.colors as mcolors
 import os
 import ast
 
-def EvaluateTracks(merged_data, output_dir, truth_condition):
-    """Function that takes a set of output predictions of the transformer algorithm,
-    and groups them into tracks, and evaluates how good these tracks are based on the metric provided.
-    Inputs:
-    - transformer prediction csv
-    - Output directory for saving
-    - Truth condition using: Can be either 'current_alg' for direct comparison, '50/50','75/75' or '100/100'
-    Outputs:
-    - EFFICIENCY evaluating csv - Made from merging the predicted tracks with the unique reconstructable tids 
-    - FAKE RATE evaluating  - Made from evaluating which predicted tracks satisfy truth condition and which don't """
-    
-    assert truth_condition in ['current_alg', '50/50', '75/75', '100/100'], "fake_measure must be 'current_alg', '50/50', '75/75' or '100/100'"
-
-    # Sort the hits data to find out how many unique tids there are (i.e how many true particles). Use this to finish truth condition on tracks later.
-    merged_hits_truth_data_filtered_columns = merged_data[[
-    "frame","tid", "traj_p", "traj_pt", "traj_lambda", "traj_phi", "bin_index"]].copy()
-    merged_hits_truth_data_filtered_columns['num_hits_x'] = merged_hits_truth_data_filtered_columns.groupby('tid')['tid'].transform('count')
-    unique_reconstructable_tids = merged_hits_truth_data_filtered_columns[merged_hits_truth_data_filtered_columns['num_hits_x'] >= 4].drop_duplicates(subset=['tid']) 
-    unique_reconstructable_tids_path = os.path.join(output_dir, "reconstructable_tids.csv")
-    unique_reconstructable_tids.to_csv(unique_reconstructable_tids_path, index = False)
-
-
-    #Group the transformer predictions and evaluate the tracks based on the truth condtition - First half of the 50/50 etc rule
-    merged_data_grouped = merged_data.groupby(['frameNumber','predicted_bin_index']).apply(lambda group: TrackTruthSorting(group, truth_condition))
-    tracks_only = merged_data_grouped.drop(columns=['hitIndex', 'tid','traj_p','traj_pt','traj_lambda','traj_phi','bin_index'])  # Dropping unnec columns
-    tracks_only = (tracks_only
-                   .drop_duplicates(subset=['frameNumber','predicted_bin_index'])
-                   .reset_index(drop=True))
-
-
-    ####### EFFICIENCY CSV MAKING HERE ##########
-    correct_tracks = tracks_only[tracks_only['correct_track'] == 1]
-
-    # Merge unique tids with predicted tracks
-    merged_tracks = unique_reconstructable_tids.merge(
-        correct_tracks,
-        left_on='tid',      
-        right_on='correct_track_tid',              
-        how='left'
-        )
-    merged_tracks.drop(columns=['frameNumber_y'], inplace=True)
-
-    # Check 2nd part of the 50/50 etc conditions: Do the true tracks hold >50% of the tid hits? If not discard. 
-    if truth_condition == '50/50':
-        merged_tracks['correct_track'] = merged_tracks.apply(
-            lambda row: 0 if row['num_tid_hits_in_track'] < 0.5 * row['num_hits_x'] else row['correct_track'],
-            axis=1)
-    elif truth_condition == '75/75':
-        merged_tracks['correct_track'] = merged_tracks.apply(
-            lambda row: 0 if row['num_tid_hits_in_track'] < 0.75 * row['num_hits_x'] else row['correct_track'],
-            axis=1)
-    elif truth_condition == '100/100':
-        merged_tracks['correct_track'] = merged_tracks.apply(
-            lambda row: 0 if row['num_tid_hits_in_track'] <  row['num_hits_x'] else row['correct_track'],
-            axis=1)
-         
-    # Save - This is csv of all reconstructable tracks, and the correct reconstructed ones.
-    merged_tracks_path = os.path.join(output_dir, "unique_tids_and_predicted_tracks.csv") 
-    merged_tracks.to_csv(merged_tracks_path, index=False)
-
-    # Update the tracks_only dataframe with the correct_track values from the merge above. This now satisfies fully the 50/50 etc condition
-    mapping = (
-        merged_tracks[['correct_track_tid', 'correct_track']]
-        .drop_duplicates(subset='correct_track_tid')
-        .set_index('correct_track_tid')['correct_track'])
-    tracks_only['correct_track'] = tracks_only['correct_track_tid'].map(mapping).fillna(tracks_only['correct_track']).astype(int)
-    tracks_only_correct_path = os.path.join(output_dir, "predicted_tracks_evaluated.csv")
-    tracks_only.to_csv(tracks_only_correct_path, index=False)
-
-    # Calculate overall efficiency measure
-    num_reconstructable_tracks = len(merged_tracks)
-    num_correct_tracks = (merged_tracks['correct_track'] ==1).sum()
-    print(f"number of reconstructable tracks: {num_reconstructable_tracks}")
-    print(f"number correct tracks:{num_correct_tracks}")
-    overall_eff = (num_correct_tracks / num_reconstructable_tracks) *100
-    print(f"overall efficiency of transformer:{overall_eff}")
-
-
-    # Calculate overall Fake Rate
-    num_reconstructed_tracks = len(tracks_only)
-    num_fake_tracks = (tracks_only['correct_track']==0).sum()
-    print(f"Total number of constructed tracks:{num_reconstructed_tracks}")
-    print(f"Number of Fake Tracks:{num_fake_tracks}")
-    overall_fake_rate = (num_fake_tracks/num_reconstructed_tracks) *100
-    print(f"Overall Fake Rate:{overall_fake_rate}")
-
-    return merged_tracks, tracks_only
-
-def TrackTruthSorting(group, truth_condition):
-    """Function that filters the predicted tracks based on the truth condition given. Either:
-        - Current_alg: All of the hits in the track must belong to the same particle
-        - 50/50: At least 50% hits from the same particle, at least 50% of particle hits in track
-        - 75/75 or 100/100: As for 50/50 but with increased percentages - stronger measures"""
-    
-    match_ratio = (group['predicted_bin_index'] == group['bin_index']).mean()
-    if truth_condition == 'current_alg':
-        correct_track = match_ratio == 1
-
-    elif truth_condition == '50/50':
-        correct_track = match_ratio > 0.5
-
-    elif truth_condition == '75/75':
-        correct_track = match_ratio > 0.75
-
-    elif truth_condition == '100/100':
-        correct_track = match_ratio == 1
-
-    if correct_track:
-            group['correct_track'] = 1
-            correct_track_tid = group['tid'].mode()[0]  # Finding the most common tid in the track - this is the tid the track represents
-            group['correct_track_tid'] = correct_track_tid 
-            group['num_tid_hits_in_track'] = (group['tid'] == group['correct_track_tid']).sum()  
-    else:
-            group['correct_track'] = 0
-            #group['tids_in_track'] = ', '.join(map(str, group['tid'].unique())) #Not sure I actually need this
-
-    group['num_hits_in_track'] = group['hitIndex'].nunique()
-    return group
-
 def EfficiencyLambdaMomentumPlot(data_file, min_lam, max_lam, lam_res, min_p, max_p, p_res, p_type, num_hits_x):
     """Function that produces a plot of track finding algorithm efficiency as a function of total momentum
        and inclination angle (lambda) of the underlying truth particle. Creates a 2D colourmap of efficiency as output.
@@ -191,7 +72,7 @@ def EfficiencyLambdaMomentumPlot(data_file, min_lam, max_lam, lam_res, min_p, ma
 
     plt.xlabel("$\lambda$ [rad]", fontsize=18)
     plt.ylabel(f"{p_plot_name} [MeV/c]", fontsize=18)
-    plt.title(f"Efficiency as a Function of $\lambda$ and {p_plot_name}", fontsize=20)
+    #plt.title(f"Efficiency as a Function of $\lambda$ and {p_plot_name}", fontsize=20)
 
     plt.show()
     return
@@ -228,54 +109,62 @@ def EfficiencyTrackLengthPlot(data_file):
     plt.bar(efficiency_all.index, efficiency_all.values, color='blue', edgecolor = 'black', label='Efficiency')
     plt.xlabel("Track Length", fontsize=14)
     plt.ylabel("Efficiency", fontsize=14)
-    plt.title("Efficiency as a Function of Track Length", fontsize=18)
+    #plt.title("Efficiency as a Function of Track Length", fontsize=18)
     plt.grid(True)
     plt.legend()
     plt.yticks(np.arange(0, 1.1, 0.1))  
     plt.show()
     return
 
-def FakeRateTrackLengthPlot(data_file, num_hits_x):
+def FakeRateTrackLengthPlot(data_file):
     """Function to plot the fake rate of the track finding as a function of the reconstructed track length. 
     Input:
     - Data file of all tracks reconstructed, fake and real
     Output:
-    - Overall efficiency measure
+    - Fake rate measure
     """
 
-    # If want based on bins:
-    bins = [0, 5, 10, 20, 40, float('inf')]  
-    bin_labels = ['0-5', '5-10', '10-20', '20-40', '50+'] 
-    data_file['track_length_bin'] = pd.cut(data_file['num_hits_in_track'], bins=bins, labels=bin_labels, right=False)
+    # Ensure required columns exist
+    required_columns = {'num_hits_x', 'correct_track'}
+    missing_columns = required_columns - set(data_file.columns)
+    if missing_columns:
+        raise ValueError(f"Missing columns in data file: {missing_columns}")
+
+    # Bins for track length
+    bins = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, float('inf')]
+    bin_labels = ['4', '5', '6', '7', '8', '9', '10', '11', '12', '12+']
+    data_file['track_length_bin'] = pd.cut(data_file['num_hits_x'], bins=bins, labels=bin_labels, right=True)
+
+    # Debugging: Check bin assignments
+    print("Track length bin counts:\n", data_file['track_length_bin'].value_counts())
+
     grouped_data_tracklength = data_file.groupby('track_length_bin')
 
-    # If want for each length track created:
-    #grouped_data_tracklength = data_file.groupby('num_hits_in_track', observed=False)
-
-    total_tracks_per_length = grouped_data_tracklength['predicted_bin_index'].count() #Again count total, including the duplicates
-    fake_tracks = grouped_data_tracklength['correct_track'].agg(lambda x: (x==0).sum())
+    total_tracks_per_length = grouped_data_tracklength['correct_track'].count()  # Total tracks per group
+    fake_tracks = grouped_data_tracklength['correct_track'].agg(lambda x: (x == 0).sum())
     fake_rate = fake_tracks / total_tracks_per_length
 
+    # Replace NaN values in fake_rate with zeros
+    fake_rate = fake_rate.fillna(0)
 
-    # print("Fake Rate per Track Length:")
-    # for length, rate in fake_rate.items():
-    #     print(f"Track Length {length}: Fake Rate = {rate:.4f}")
+    # Debugging: Check fake rate values
+    print("Fake rate by track length:\n", fake_rate)
 
     # Plot bar chart
     plt.figure(figsize=(8, 5))
-    bars = plt.bar(fake_rate.index, fake_rate.values, color='red', edgecolor = 'black', alpha=0.8)
+    bars = plt.bar(fake_rate.index, fake_rate.values, color='red', edgecolor='black', alpha=0.8)
     for bar in bars:
         yval = bar.get_height()
-        plt.text(bar.get_x() + bar.get_width()/2, yval, f"{yval:.3f}", ha='center', va='bottom', fontsize=12, fontweight='bold')
+        plt.text(bar.get_x() + bar.get_width() / 2, yval, f"{yval:.3f}", ha='center', va='bottom', fontsize=12, fontweight='bold')
 
     plt.xlabel("Track Length", fontsize=14)
     plt.ylabel("Fake Rate", fontsize=14)
-    plt.title("Fake Rate vs Track Length", fontsize=16)
+    #plt.title("Fake Rate vs Track Length", fontsize=16)
     plt.xticks(fake_rate.index)  
     plt.ylim(0, max(fake_rate.values) * 1.2) 
     plt.show()
 
-    return fake_rate 
+    return fake_rate
 
 
 def calculate_fake_rate(predicted_tracks_file):
@@ -292,21 +181,16 @@ def calculate_fake_rate(predicted_tracks_file):
     fake_rate = fake_tracks / total_tracks if total_tracks > 0 else 0
     print(f"\n Fake Rate: {fake_rate:.4f} ({fake_tracks}/{total_tracks})")
 
+    return fake_rate
+
 
 
 
 
 
 ##########################################################################################################################################
-#transformer_prediction_file = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TestSet4/Evaluation/run_20250309_150040/predictions_test_with_truths.csv"
-#output_dir = "/root/Mu3eProject/DataFilesAndTests/DataAutomationTest/TestSet4/Evaluation/"
 
-
-merged_tracks = pd.read_csv('ProcessedData/signal1_95-99_32652/evaluation_prep/predicted_tracks5_merged_100-0_harsh.csv')
-#merged_tracks = EvaluateTracks(merged_data, output_dir, truth_condition = 'current_alg')[0]
-#merged_tracks = EvaluateTracks(merged_data, output_dir, truth_condition = '50/50')[0]
-#merged_tracks = EvaluateTracks(merged_data, output_dir, truth_condition = '75/75')[0]
-#merged_tracks = EvaluateTracks(merged_data, output_dir, truth_condition = '100/100')[0]
+merged_tracks = pd.read_csv('ProcessedData/signal1_95-99_32652/evaluation_prep/predicted_tracks5_merged_50-50_harsh.csv')
 
 #fake_rates = EvaluateTracks(merged_data, output_dir, truth_condition = 'current_alg')[1]
 
@@ -328,22 +212,18 @@ EfficiencyLambdaMomentumPlot(merged_tracks, min_lam = -1.6,max_lam = 1.6, lam_re
                                             min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_p', num_hits_x = 4)
 
 EfficiencyTrackLengthPlot(merged_tracks)
-#FakeRateTrackLengthPlot(fake_rates, num_hits_x = 4)
-
-## Plots to get working using the classified track label, once we have working:
-
-# RatioLongToShortTracks(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 1, p_type = 'traj_pt', num_hits_x = 4)
-
-# FakeRateLambdaMomentumPlot(df_comparison, min_lam = -1.6,max_lam = 1.6, lam_res = 0.05 , min_p = 0, max_p = 60, p_res = 2, p_type = 'traj_p', num_hits_x = 4, fake_measure = 'harsh') #Harsh = non absolute true = fake, lenient = mc_prime:0 AND mc measure:0
 
 # Calculate total efficiency
 total_correct_tracks = merged_tracks["correct_track"].sum()
 total_tracks = len(merged_tracks)
-
 total_efficiency = total_correct_tracks / total_tracks if total_tracks > 0 else 0
 print(f"\n GNN Total Efficiency: {total_efficiency:.4f} ({total_correct_tracks}/{total_tracks})")
 
+# Load fake rate file and calculate fake rate
+fake_rate_file = 'ProcessedData/signal1_95-99_32652/evaluation_prep/fake_rate_50-50_harsh.csv'
+fake_rate_data = pd.read_csv(fake_rate_file)
 
-#predicted_tracks_file = "ProcessedData/signal1_96_32652/reconstructed_tracks/predicted_tracks3.csv"
-#calculate_fake_rate(predicted_tracks_file)
+# Calculate and plot fake rate by track length
+fake_rate = calculate_fake_rate(fake_rate_file)
+FakeRateTrackLengthPlot(fake_rate_data)
 
