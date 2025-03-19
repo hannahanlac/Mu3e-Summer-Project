@@ -11,7 +11,7 @@ import networkx as nx
 from scipy.spatial import cKDTree
 from tqdm import tqdm
 
-model_path = "trained_gnn_model5"  # Path to saved model
+model_path = "trained_gnn_model6"  # Path to saved model
 model = tf.keras.models.load_model(model_path)
 
 
@@ -394,7 +394,7 @@ def save_tracks(batch_tracks, output_dir="ProcessedData/signal1_95-99_32652/reco
     df = pd.DataFrame(all_tracks)
 
     # Save to CSV
-    csv_path = os.path.join(output_dir, "predicted_tracks5.csv")
+    csv_path = os.path.join(output_dir, "predicted_tracks6.csv")
     df.to_csv(csv_path, index=False)
 
     print(f"Tracks saved to {csv_path}")

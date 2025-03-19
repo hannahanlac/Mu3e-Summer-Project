@@ -5,7 +5,7 @@ import os
 ###################### Predicted Tracks - Condition 1 ##########################
 
 # Load the CSV file
-file_path = 'ProcessedData/signal1_95-99_32652/reconstructed_tracks/predicted_tracks5.csv'
+file_path = 'ProcessedData/signal1_95-99_32652/reconstructed_tracks/predicted_tracks6.csv'
 print("Loading CSV file...")
 df = pd.read_csv(file_path)
 
@@ -26,7 +26,7 @@ threshold_mapping = {
     '75': (0.75, False),
     '50': (0.50, False)
 }
-command = '50/50'  # Change this to '100/100', '75/75', '50/50', etc. as needed
+command = '100/0'  # Change this to '100/100', '75/75', '50/50', etc. as needed
 first_threshold, first_inclusive = threshold_mapping[command.split('/')[0]]
 second_condition = command.split('/')[1]
 
@@ -181,7 +181,7 @@ merged_df = merged_df[merged_df.apply(lambda x: not x.empty, axis=1)]
 # Save the DataFrame as fake_rate.csv
 safe_command = str(command).replace("/", "-")
 
-fake_rate_path = f'ProcessedData/signal1_95-99_32652/evaluation_prep/fake_rate_{safe_command}_harsh.csv'
+fake_rate_path = f'ProcessedData/signal1_95-99_32652/evaluation_prep/fake_rate_{safe_command}_harsh6.csv'
 merged_df.to_csv(fake_rate_path, index=False)
 print(f"Fake rate CSV file saved to {fake_rate_path}")
 
@@ -226,7 +226,7 @@ output_directory = 'ProcessedData/signal1_95-99_32652/evaluation_prep'
 os.makedirs(output_directory, exist_ok=True)
 
 # Save the final DataFrame to a new CSV file
-output_file_path = f'{output_directory}/predicted_tracks5_merged_{safe_command}_harsh.csv'
+output_file_path = f'{output_directory}/predicted_tracks6_merged_{safe_command}_harsh.csv'
 merged_df.to_csv(output_file_path, index=False)
 
 print(f"Merged CSV file saved to {output_file_path}")

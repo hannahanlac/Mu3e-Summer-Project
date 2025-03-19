@@ -190,7 +190,7 @@ def calculate_fake_rate(predicted_tracks_file):
 
 ##########################################################################################################################################
 
-merged_tracks = pd.read_csv('ProcessedData/signal1_95-99_32652/evaluation_prep/predicted_tracks5_merged_50-50_harsh.csv')
+merged_tracks = pd.read_csv('ProcessedData/signal1_95-99_32652/evaluation_prep/predicted_tracks6_merged_100-0_harsh.csv')
 
 #fake_rates = EvaluateTracks(merged_data, output_dir, truth_condition = 'current_alg')[1]
 
@@ -220,7 +220,7 @@ total_efficiency = total_correct_tracks / total_tracks if total_tracks > 0 else 
 print(f"\n GNN Total Efficiency: {total_efficiency:.4f} ({total_correct_tracks}/{total_tracks})")
 
 # Load fake rate file and calculate fake rate
-fake_rate_file = 'ProcessedData/signal1_95-99_32652/evaluation_prep/fake_rate_50-50_harsh.csv'
+fake_rate_file = 'ProcessedData/signal1_95-99_32652/evaluation_prep/fake_rate_100-0_harsh6.csv'
 fake_rate_data = pd.read_csv(fake_rate_file)
 
 # Calculate and plot fake rate by track length
