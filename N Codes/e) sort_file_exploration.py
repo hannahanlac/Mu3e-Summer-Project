@@ -3,7 +3,7 @@ import numpy
 import matplotlib.pyplot as plt
 import awkward as ak
 
-file = uproot.open(r"/app/Simulation Data/v5.3/signal1_95_32652_execution_1_run_num_67021_sort.root")
+file = uproot.open(r"/cephfs/dice/projects/mu3e/jack_mounser/v5.3/signal1/signal1_0_32652_execution_1_run_num_119355_vertex.root")
 
 keys = file.keys() # Accessing the file keys to see what info there is
 #lists datasets and structures stored in root file
