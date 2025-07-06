@@ -5,8 +5,8 @@ import awkward as ak
 import awkward0
 
 # %%
-signal = uproot.open("/software/dg22882/ParticleNet/Dataset/HH/ROOT/delphes_output.root") # change path to origial dataset
-bkg = uproot.open("/software/dg22882/ParticleNet/Dataset/SNU/ROOT/delphes_nuGun.root") # change path to origial dataset
+signal = uproot.open("/users/gy22186/mu3e/Mu3eTracking-Johannes/DataFiles/Frame_hits_csvs_signal1_1_1944629/Full_frame/hits_data_signal1_1_1_test.csv") # change path to origial dataset
+bkg = uproot.open("/users/gy22186/mu3e/Mu3eTracking-Johannes/DataFiles/Frame_hits_csvs_signal1_1_1944629/Full_frame/hits_data_signal1_1_1_test.csv") # change path to origial dataset
 
 # %%
 signal_branch = signal['Delphes;1']
