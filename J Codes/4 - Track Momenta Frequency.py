@@ -9,7 +9,7 @@ import uproot
 import matplotlib.pyplot as plt
 import numpy as np
 
-file = uproot.open(r"/app/Simulation Data/v5.2/signal1_0_1944629_execution_1_run_num_407942_vertex.root")
+file = uproot.open(r"/cephfs/dice/projects/mu3e/jack_mounser/v5.3/signal1/signal1_0_32652_execution_1_run_num_119355_vertex.root")
 vertices = file["vertex"].arrays()
 
 print(dir(vertices[0]))

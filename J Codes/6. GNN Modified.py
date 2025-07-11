@@ -444,7 +444,7 @@ def get_edgeconv(input_shapes):
 ### Load Dataset
 # Change path to your train_dataset ( train + validation )
 
-train_dataset = Dataset('ProcessedData/signal1_96_32652/train_data/train_data.parquet', data_format='channel_last')
+train_dataset = Dataset('/users/gy22186/mu3e/GNNtrain_data/train_data.parquet', data_format='channel_last')
 
 print("Feature keys:", train_dataset.X.keys())  # Check feature names
 for key in train_dataset.X.keys():
@@ -548,7 +548,7 @@ print(f"metrics saved: {GCNN_model_name}")
 
 # Predict on test dataset
 # Change path to testing dataset here
-test_dataset = Dataset('ProcessedData/signal1_96_32652/test_data/test_data.parquet', data_format='channel_last')
+test_dataset = Dataset('/users/gy22186/mu3e/GNNtest_data/test_data.parquet', data_format='channel_last')
 
 
 # Save to numpy files to use in make_plots2.py

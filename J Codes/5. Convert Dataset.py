@@ -16,7 +16,7 @@ def Dataset(signal_dir):
     #extract spatial (layer, station, ladder, chip, pixel x, pixel y) classes from original dataset
     #and convert to awkward array
     signal_arrays = ak.Array({
-        'frame_array': dataframe['frame'].to_numpy(),
+        'frame_array': dataframe['frameNumber'].to_numpy(),
         'hit_ID' : dataframe['hitIndex'].to_numpy(),
         'layer_array' :  dataframe['layer'].to_numpy(),
         'station_array' : dataframe['station'].to_numpy(),
@@ -202,8 +202,8 @@ def Normalization(train_data,test_data):
 
 #Finally making the dataset
 def MakeDataset():
-    train_dir = "ProcessedData/signal1_95-99_32652/train_data"
-    test_dir = "ProcessedData/signal1_95-99_32652/test_data"
+    train_dir = "/users/gy22186/mu3e/GNNtrain_data"
+    test_dir = "/users/gy22186/mu3e/GNNtest_data"
 
     if not os.path.exists(train_dir):
         os.makedirs(train_dir)
@@ -238,7 +238,7 @@ def MakeDataset():
     #Dictionary of padding values for each parameter
     #can change these padding values for physical/practical reasons as wish
 
-    signal_dir = "ProcessedData/signal1_95-99_32652/csv/new_hits_data_signal1_95-99_32652.csv"
+    signal_dir = "/users/gy22186/mu3e/processed_signal_files_step1_GNN/new_hits_data_for_gnn.csv"
     split_ratio = 0.75
 
 

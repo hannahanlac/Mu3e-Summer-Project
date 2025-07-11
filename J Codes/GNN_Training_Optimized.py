@@ -44,7 +44,7 @@ def load_data(file_path):
     return awk_array
 
 
-file_path = 'ProcessedData/signal1_95-99_32652/train_data/train_data.parquet'
+file_path = '/users/gy22186/mu3e/GNNtrain_data/train_data.parquet'
 awk_data = load_data(file_path)
 
 
@@ -373,7 +373,7 @@ model = edge_classifier(np.zeros((1, edge_feats.shape[1])))  # Use the correct s
 model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
 
 # Train model iteratively over batches
-num_epochs = 100  # Define number of epochs
+num_epochs = 2  # Define number of epochs
 
 total_steps = num_epochs * len(batch_graphs)  # Total iterations across all epochs
 
