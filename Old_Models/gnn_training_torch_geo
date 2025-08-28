@@ -1,0 +1,136 @@
+import torch
+import torch.nn.functional as F
+from torch_geometric.data import Data, DataLoader
+from torch_geometric.nn import GCNConv
+import awkward as ak
+import numpy as np
+from tqdm import tqdm
+import pyarrow.parquet as pq
+from scipy.spatial import cKDTree
+import logging
+def load_data(file_path):
+    table = pq.read_table(file_path)
+    awk_array = ak.from_arrow(table)
+
+    # Flatten nested arrays to 1D
+    flat_dict = {key: ak.to_numpy(awk_array[key]).flatten() for key in awk_array.fields}
+    awk_array = ak.Array(flat_dict)
+
+    print(f"Loaded dataset: {len(awk_array['hit_ID'])} hits")
+    return awk_array
+
+
+def build_graph_pyg(frame_hits, k_neighbours=5):
+    # Convert fields to numpy arrays
+    gx = ak.to_numpy(frame_hits['gx'])
+    gy = ak.to_numpy(frame_hits['gy'])
+    gz = ak.to_numpy(frame_hits['gz'])
+    layers = ak.to_numpy(frame_hits['layer_array'])
+    tids = ak.to_numpy(frame_hits['tid_array'])
+
+    # Filter out NaNs
+    valid_mask = ~(np.isnan(gx) | np.isnan(gy) | np.isnan(gz))
+    gx, gy, gz = gx[valid_mask], gy[valid_mask], gz[valid_mask]
+    layers, tids = layers[valid_mask], tids[valid_mask]
+
+    coords = np.column_stack((gx, gy, gz))
+    if coords.shape[0] == 0:
+        return None  # Skip empty frame
+
+    # Build edges using k-NN
+    kd_tree = cKDTree(coords)
+    edge_index = []
+    for i, coord in enumerate(coords):
+        distances, indices = kd_tree.query(coord, k=k_neighbours + 1)  # +1 to include self
+        for idx in indices[1:]:  # Skip self-loop
+            edge_index.append([i, idx])
+
+    edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()  # Shape: [2, num_edges]
+
+    # Node features
+    x = torch.tensor(np.column_stack((gx, gy, gz, layers)), dtype=torch.float)
+
+    # Edge labels (1 if same track, 0 otherwise)
+    edge_labels = []
+    for u, v in edge_index.t().tolist():
+        edge_labels.append(1 if tids[u] == tids[v] else 0)
+    edge_labels = torch.tensor(edge_labels, dtype=torch.float).view(-1, 1)
+
+    # Create PyG Data object
+    data = Data(x=x, edge_index=edge_index, edge_attr=edge_labels)
+    return data
+
+# Load data
+file_path = '/users/gy22186/mu3e/ten_signal_files/train_data.parquet'
+awk_data = load_data(file_path)
+
+# Get all unique frames
+all_frames = np.unique(ak.to_numpy(awk_data['frame_array']))
+
+# Build one graph per frame
+frame_graphs = []
+print("Building graphs for each frame...")
+for frame_id in tqdm(all_frames):
+    frame_mask = (ak.to_numpy(awk_data['frame_array']) == frame_id)
+    frame_hits = awk_data[frame_mask]
+    if len(frame_hits['hit_ID']) == 0:
+        continue
+    graph = build_graph_pyg(frame_hits)
+    if graph is not None:
+        frame_graphs.append(graph)
+
+print(f"Built {len(frame_graphs)} graphs (one per frame).")
+
+# Batch graphs (e.g., 8 graphs per batch)
+batch_size = 5000
+data_loader = DataLoader(frame_graphs, batch_size=batch_size, shuffle=True)
+
+from torch_geometric.nn import GCNConv
+
+class EdgeClassifier(torch.nn.Module):
+    def __init__(self, input_dim, hidden_dim):
+        super(EdgeClassifier, self).__init__()
+        self.conv1 = GCNConv(input_dim, hidden_dim)
+        self.conv2 = GCNConv(hidden_dim, hidden_dim)
+        self.fc = torch.nn.Linear(hidden_dim * 2, 1)  # For edge classification
+
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+
+        # Node embeddings
+        x = F.relu(self.conv1(x, edge_index))
+        x = F.relu(self.conv2(x, edge_index))
+
+        # Edge embeddings
+        row, col = edge_index
+        edge_features = torch.cat([x[row], x[col]], dim=1)  # Concatenate source and target node embeddings
+
+        # Edge classification
+        edge_logits = self.fc(edge_features)
+        return edge_logits
+    
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model = EdgeClassifier(input_dim=4, hidden_dim=32).to(device)  # Input dim = 4 (gx, gy, gz, layer)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+# Training loop
+num_epochs = 20
+model.train()
+for epoch in range(num_epochs):
+    epoch_loss = 0
+    for batch in tqdm(data_loader, desc=f"Epoch {epoch+1}/{num_epochs}"):
+        batch = batch.to(device)
+        optimizer.zero_grad()
+
+        # Forward pass
+        edge_logits = model(batch)
+        edge_labels = batch.edge_attr.to(device)
+
+        # Compute loss
+        loss = F.binary_cross_entropy_with_logits(edge_logits, edge_labels)
+        loss.backward()
+        optimizer.step()
+
+        epoch_loss += loss.item()
+
+    print(f"Epoch {epoch+1}, Loss: {epoch_loss / len(data_loader):.4f}")

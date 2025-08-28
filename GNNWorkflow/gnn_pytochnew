@@ -1,0 +1,277 @@
+import os
+import numpy as np
+import awkward as ak
+import pyarrow.parquet as pq
+from tqdm import tqdm
+from scipy.spatial import cKDTree
+import torch
+import torch.nn as nn
+from torch_geometric.data import Data
+from torch_geometric.loader import DataLoader
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+import torch.multiprocessing as mp
+from sklearn.preprocessing import StandardScaler
+
+
+# -------------------- Data Loading --------------------
+def load_data(file_path):
+    table = pq.read_table(file_path)
+    awk_array = ak.from_arrow(table)
+    flat_dict = {key: ak.to_numpy(awk_array[key]).flatten() for key in awk_array.fields}
+    return ak.Array(flat_dict)
+
+# -------------------- Graph Builder --------------------
+def build_graph_pyg(frame_hits, k_neighbours=40):
+    gx = ak.to_numpy(frame_hits['gx'])
+    gy = ak.to_numpy(frame_hits['gy'])
+    gz = ak.to_numpy(frame_hits['gz'])
+    layers = ak.to_numpy(frame_hits['layer_array'])
+    stations = ak.to_numpy(frame_hits['station_array'])
+    ladders = ak.to_numpy(frame_hits['ladder_array'])
+    chips = ak.to_numpy(frame_hits['chip_array'])
+    hit_IDs = ak.to_numpy(frame_hits['hit_ID'])
+    tids = ak.to_numpy(frame_hits['tid_array'])
+
+    valid_mask = ~(np.isnan(gx) | np.isnan(gy) | np.isnan(gz))
+    gx, gy, gz = gx[valid_mask], gy[valid_mask], gz[valid_mask]
+    layers = layers[valid_mask]
+    stations = stations[valid_mask]
+    ladders = ladders[valid_mask]
+    chips = chips[valid_mask]
+    hit_IDs = hit_IDs[valid_mask]
+    tids = tids[valid_mask]
+
+    coords = np.stack([gx, gy, gz], axis=1)
+    if coords.shape[0] == 0:
+        return None
+
+    edge_index = []
+    edge_attr = []
+    edge_label = []
+
+    layer_indices = {layer: np.where(layers == layer)[0] for layer in np.unique(layers)}
+    kdtrees = {layer: cKDTree(coords[layer_indices[layer]]) for layer in layer_indices}
+
+    layer_connections = {
+        1: [2],
+        2: [1, 3],
+        3: [2, 4],
+        4: [3]
+    }
+
+    for layer, neighbors in layer_connections.items():
+        if layer not in layer_indices:
+            continue
+        for neighbor in neighbors:
+            if neighbor not in layer_indices:
+                continue
+
+            source_idx = layer_indices[layer]
+            target_idx = layer_indices[neighbor]
+            tree = kdtrees[neighbor]
+
+            for i in source_idx:
+                dists, idxs = tree.query(coords[i], k=min(k_neighbours, len(target_idx)))
+                idxs = [idxs] if np.isscalar(idxs) else idxs
+                for j_local in idxs:
+                    j = target_idx[j_local]
+                    edge_index.append([i, j])
+
+                    source = coords[i]
+                    target = coords[j]
+                    feat_diff = source - target
+                    cat_feats = np.array([
+                        layers[i], stations[i], ladders[i], chips[i],
+                        layers[j], stations[j], ladders[j], chips[j]
+                    ])
+                    edge_feat = np.concatenate([source, target, feat_diff, cat_feats])
+                    edge_attr.append(edge_feat)
+
+                    label = 1 if tids[i] == tids[j] else 0
+                    edge_label.append(label)
+
+    if not edge_index:
+        return None
+
+    # Normalize edge_attr
+    edge_attr = np.array(edge_attr)  # Ensure edge_attr is a NumPy array
+    # scaler = StandardScaler()
+    # edge_attr = scaler.fit_transform(edge_attr)  # Normalize features
+    edge_attr = torch.tensor(edge_attr, dtype=torch.float)
+
+    edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+    edge_label = torch.tensor(edge_label, dtype=torch.float).view(-1, 1)
+    x = torch.tensor(coords, dtype=torch.float)
+
+    return Data(x=x, edge_index=edge_index, edge_attr=edge_attr, y=edge_label, hit_IDs=torch.tensor(hit_IDs, dtype=torch.long))
+    
+def evaluate_edge_coverage(graph: Data, tids: np.ndarray, layers: np.ndarray):
+    edge_index = graph.edge_index.cpu().numpy()
+    predicted_edges = set(tuple(edge) for edge in edge_index.T if edge[0] != edge[1])
+
+    # All ground truth edges: same-tid pairs in adjacent layers
+    true_edges = set()
+    fake_edges = set()
+    tid_to_hits = {}
+
+    for idx, tid in enumerate(tids):
+        if tid < 0:
+            continue  # skip noise
+        tid_to_hits.setdefault(tid, []).append(idx)
+
+    for hit_list in tid_to_hits.values():
+        for i in range(len(hit_list)):
+            for j in range(i + 1, len(hit_list)):
+                hit_i = hit_list[i]
+                hit_j = hit_list[j]
+                # Only include edges between hits in adjacent layers
+                if abs(layers[hit_i] - layers[hit_j]) == 1:
+                    true_edges.add((hit_i, hit_j))
+                    true_edges.add((hit_j, hit_i))  # bidirectional
+
+    # Identify all possible fake edges (different-tid pairs in adjacent layers)
+    for i in range(len(tids)):
+        for j in range(i + 1, len(tids)):
+            if tids[i] != tids[j] and abs(layers[i] - layers[j]) == 1:
+                fake_edges.add((i, j))
+                fake_edges.add((j, i))  # bidirectional
+
+    if len(true_edges) == 0:
+        print("No true edges to evaluate.")
+        return {"total": 0, "found": 0, "missed": 0, "coverage": 0.0}
+
+    # Evaluate true edges
+    found_true = true_edges & predicted_edges
+    missed_true = true_edges - predicted_edges
+
+    # Evaluate fake edges
+    found_fake = fake_edges & predicted_edges
+    missed_fake = fake_edges - predicted_edges
+
+    # Compute coverage metrics
+    true_coverage = len(found_true) / len(true_edges) if len(true_edges) > 0 else 0.0
+    fake_coverage = len(found_fake) / len(fake_edges) if len(fake_edges) > 0 else 0.0
+
+    print(f"Total true edges (same-tid pairs in adjacent layers): {len(true_edges)}")
+    print(f"Found true edges: {len(found_true)}")
+    print(f"Missing true edges: {len(missed_true)}")
+    print(f"True edge coverage: {true_coverage:.2%}")
+
+    print(f"Total fake edges (different-tid pairs in adjacent layers): {len(fake_edges)}")
+    print(f"Found fake edges: {len(found_fake)}")
+    print(f"Missing fake edges: {len(missed_fake)}")
+    print(f"Fake edge coverage: {fake_coverage:.2%}")
+
+    return {
+        "total_true_edges": len(true_edges),
+        "found_true_edges": len(found_true),
+        "missed_true_edges": len(missed_true),
+        "true_coverage": true_coverage,
+        "total_fake_edges": len(fake_edges),
+        "found_fake_edges": len(found_fake),
+        "missed_fake_edges": len(missed_fake),
+        "fake_coverage": fake_coverage
+    }
+
+# -------------------- Edge Classifier Model --------------------
+class EdgeClassifier(nn.Module):
+    def __init__(self, in_channels=17, hidden=[32, 64]):
+        super().__init__()
+        layers = []
+        last = in_channels
+        for i, h in enumerate(hidden):
+            layers.append(nn.Linear(last, h))
+            layers.append(nn.BatchNorm1d(h))
+            layers.append(nn.ReLU())
+            last = h
+        layers.append(nn.Linear(last, 1))  # Final output
+        self.model = nn.Sequential(*layers)
+
+    def forward(self, edge_attr):
+        return torch.sigmoid(self.model(edge_attr))
+
+# -------------------- Training Function --------------------
+def train(model, loader, optimizer, criterion, device):
+    model.train()
+    epoch_losses = []
+    epoch_accuracies = []
+
+    pbar = tqdm(loader, desc="Training", unit="batch")
+
+    for batch in pbar:
+        batch = batch.to(device)
+        pred = model(batch.edge_attr).view(-1)
+        label = batch.y.view(-1)
+        loss = criterion(pred, label)
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        acc = ((pred > 0.5) == (label > 0.5)).float().mean().item()
+        epoch_losses.append(loss.item())
+        epoch_accuracies.append(acc)
+
+        pbar.set_postfix(loss=f"{loss.item():.4f}", acc=f"{acc:.4f}")
+
+    avg_loss = sum(epoch_losses) / len(epoch_losses)
+    avg_acc = sum(epoch_accuracies) / len(epoch_accuracies)
+
+    return avg_loss, avg_acc
+
+# -------------------- Main --------------------
+def main():
+    file_path = '/users/gy22186/mu3e/five_signal_files/train_data.parquet'
+    print("Loading data...")
+    awk_data = load_data(file_path)
+
+    print("Building/loading graphs...")
+    frame_ids = np.unique(ak.to_numpy(awk_data['frame_array']))
+    graphs_path = "/users/gy22186/mu3e/five_signal_files/train_graphs/graphsss_dataset.pt"
+
+    if os.path.exists(graphs_path):
+        print("Loading saved graphs from disk...")
+        data_list = torch.load(graphs_path, weights_only=False)
+    else:
+        print("Building graphs...")
+        data_list = []
+        for frame_id in tqdm(frame_ids, desc="Processing frames"):
+            mask = ak.to_numpy(awk_data['frame_array']) == frame_id
+            frame_hits = awk_data[mask]
+            graph = build_graph_pyg(frame_hits)
+            if graph is not None:
+                data_list.append(graph)
+                tids = ak.to_numpy(frame_hits['tid_array'])[~np.isnan(ak.to_numpy(frame_hits['gx']))]  # align with valid_mask
+                layers = ak.to_numpy(frame_hits['layer_array'])[~np.isnan(ak.to_numpy(frame_hits['gx']))]  # align with valid_mask
+                evaluate_edge_coverage(graph, tids, layers)
+        torch.save(data_list, graphs_path)
+        print(f"Saved {len(data_list)} graphs to disk.")
+
+    print(f"Total graphs ready: {len(data_list)}")
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = EdgeClassifier(in_channels=17).to(device)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3)
+    criterion = nn.BCELoss()
+
+    loader = DataLoader(data_list, batch_size=100, shuffle=True)
+
+    print("Starting training...")
+    num_epochs = 20
+    for epoch in range(1, num_epochs + 1):
+        print(f"\nEpoch {epoch}/{num_epochs}")
+        avg_loss, avg_acc = train(model, loader, optimizer, criterion, device)
+        print(f"Epoch {epoch:02d} Summary | Avg Loss: {avg_loss:.4f} | Avg Acc: {avg_acc:.4f}")
+
+        scheduler.step(avg_loss)
+        print(f"Current LR: {optimizer.param_groups[0]['lr']:.6f}")
+
+    torch.save(model.state_dict(), "/users/gy22186/mu3e/five_signal_files/edge_classifier_pyg50nn.pt")
+    print("Training complete. Model saved as edge_classifier_pyg50nn.pt")
+
+if __name__ == "__main__":
+    main()
+
+

@@ -1,0 +1,235 @@
+import awkward as ak
+import numpy as np
+from tensorflow import keras
+from tensorflow.keras.layers import BatchNormalization, Dense, Dropout
+import tensorflow as tf
+from sklearn.utils import shuffle
+import os
+import pyarrow.parquet as pq
+import pandas as pd
+import matplotlib.pyplot as plt
+import networkx as nx
+from scipy.spatial import cKDTree
+from tqdm import tqdm
+import logging
+
+def load_data(file_path):
+    table = pq.read_table(file_path)  # Load Parquet file as an Arrow table
+    awk_array = ak.from_arrow(table)  # Convert Arrow table to Awkward Array
+
+    # Convert Awkward arrays to flat NumPy arrays
+    flat_dict = {key: ak.to_numpy(awk_array[key]).flatten() for key in awk_array.fields}
+
+    # Convert to a new Awkward array (all values now 1D)
+    awk_array = ak.Array(flat_dict)
+
+    print(f"Loaded dataset: {len(awk_array['hit_ID'])} hits")
+    return awk_array
+
+
+def build_graph(frame_data, k_neighbours=5):
+    """
+    Build graph for a single frame from Awkward array slice.
+    """
+    # Convert Awkward arrays to NumPy
+    gx = ak.to_numpy(frame_data['gx'])
+    gy = ak.to_numpy(frame_data['gy'])
+    gz = ak.to_numpy(frame_data['gz'])
+    layers = ak.to_numpy(frame_data['layer_array'])
+    stations = ak.to_numpy(frame_data['station_array'])
+    ladders = ak.to_numpy(frame_data['ladder_array'])
+    chips = ak.to_numpy(frame_data['chip_array'])
+    hit_IDs = ak.to_numpy(frame_data['hit_ID'])
+    tids = ak.to_numpy(frame_data['tid_array'])
+    traj_p = ak.to_numpy(frame_data['traj_p'])
+    traj_pt = ak.to_numpy(frame_data['traj_pt'])
+    traj_lambda = ak.to_numpy(frame_data['traj_lambda'])
+    traj_phi = ak.to_numpy(frame_data['traj_phi'])
+
+    valid_mask = ~(np.isnan(gx) | np.isnan(gy) | np.isnan(gz))
+
+    gx, gy, gz = gx[valid_mask], gy[valid_mask], gz[valid_mask]
+    layers, stations, ladders, chips = layers[valid_mask], stations[valid_mask], ladders[valid_mask], chips[valid_mask]
+    hit_IDs, tids = hit_IDs[valid_mask], tids[valid_mask]
+    traj_p, traj_pt = traj_p[valid_mask], traj_pt[valid_mask]
+    traj_lambda, traj_phi = traj_lambda[valid_mask], traj_phi[valid_mask]
+
+    coords = np.column_stack((gx, gy, gz))
+    if coords.shape[1] != 3:
+        raise ValueError(f"Unexpected coordinate shape: {coords.shape}")
+
+    G = nx.Graph()
+    node_truth_info = {}
+
+    for i, (x, y, z, layer, station, ladder, chip) in enumerate(zip(gx, gy, gz, layers, stations, ladders, chips)):
+        G.add_node(i, gx=x, gy=y, gz=z, layer=layer, station=station, ladder=ladder, chip=chip)
+        node_truth_info[i] = {
+            "hit_ID": hit_IDs[i],
+            "tid": tids[i],
+            "traj_p": traj_p[i],
+            "traj_pt": traj_pt[i],
+            "traj_lambda": traj_lambda[i],
+            "traj_phi": traj_phi[i]
+        }
+
+    layer_indices = {layer: np.where(layers == layer)[0] for layer in np.unique(layers)}
+    kdtrees = {layer: cKDTree(coords[layer_indices[layer]]) for layer in layer_indices}
+    layer_connections = {
+        1: [2],
+        2: [1, 3],
+        3: [2, 4],
+        4: [3]
+    }
+
+    for layer, neighbours in layer_connections.items():
+        if layer not in layer_indices:
+            continue
+        layer_nodes = layer_indices[layer]
+
+        for neighbour_layer in neighbours:
+            if neighbour_layer not in layer_indices:
+                continue
+            neighbour_nodes = layer_indices[neighbour_layer]
+            neighbour_tree = kdtrees[neighbour_layer]
+
+            # Query k neighbors for all nodes in current layer from neighbour layer points
+            distances, indices = neighbour_tree.query(coords[layer_nodes], k=min(k_neighbours, len(neighbour_nodes)))
+            if k_neighbours == 1:
+                indices = np.atleast_2d(indices).T
+
+            for i_node, idx_list in zip(layer_nodes, indices):
+                idx_list = np.atleast_1d(idx_list)
+                for j_node in neighbour_nodes[idx_list]:
+                    G.add_edge(i_node, j_node)
+
+    return G, node_truth_info
+
+
+def extract_edge_features(G, node_truth_info):
+    """
+    Extract edge features and labels from a single graph.
+    """
+    edge_features = []
+    edge_labels = []
+    edge_list = []
+
+    for u, v in G.edges():
+        source_feats = np.array([G.nodes[u]['gx'], G.nodes[u]['gy'], G.nodes[u]['gz']])
+        target_feats = np.array([G.nodes[v]['gx'], G.nodes[v]['gy'], G.nodes[v]['gz']])
+        feature_diff = source_feats - target_feats
+
+        categorical_feats = np.array([
+            G.nodes[u]['layer'], G.nodes[u]['station'], G.nodes[u]['ladder'], G.nodes[u]['chip'],
+            G.nodes[v]['layer'], G.nodes[v]['station'], G.nodes[v]['ladder'], G.nodes[v]['chip']
+        ])
+
+        edge_feat = np.concatenate([source_feats, target_feats, feature_diff, categorical_feats])
+
+        label = 1 if node_truth_info[u]['tid'] == node_truth_info[v]['tid'] else 0
+
+        edge_features.append(edge_feat)
+        edge_labels.append(label)
+        edge_list.append((u, v))
+
+    return np.array(edge_features), np.array(edge_labels).reshape(-1, 1), edge_list
+
+
+def edge_classifier(input_shape, channels=(32, 64), with_bn=True, activation='relu', name='edge_classifier'):
+    """
+    Build the edge classification MLP.
+    """
+    inputs = keras.Input(shape=(input_shape,))
+    x = inputs
+    for idx, channel in enumerate(channels):
+        x = Dense(channel, activation=None, kernel_initializer='he_normal', name=f"{name}_dense{idx}")(x)
+        if with_bn:
+            x = BatchNormalization(name=f"{name}_bn{idx}")(x)
+        x = keras.layers.Activation(activation, name=f"{name}_act{idx}")(x)
+    edge_logits = Dense(1, activation='sigmoid', name=f"{name}_output")(x)
+    return keras.Model(inputs, edge_logits)
+
+
+def batch_graphs_by_frame(awk_array):
+    """
+    Build one graph per frame.
+    """
+    frames = np.unique(ak.to_numpy(awk_array['frame_array']))
+    graphs = []
+    truth_infos = []
+    for frame in frames:
+        mask = ak.to_numpy(awk_array['frame_array']) == frame
+        frame_data = awk_array[mask]
+        G, truth_info = build_graph(frame_data)
+        graphs.append(G)
+        truth_infos.append(truth_info)
+    return graphs, truth_infos
+
+
+def prepare_batch_edge_features(graphs, truth_infos, batch_size):
+    """
+    Extract and concatenate edge features from multiple graphs (frames) to form a batch.
+    """
+    all_edge_features = []
+    all_edge_labels = []
+    for i in range(batch_size):
+        edge_feats, edge_lbls, _ = extract_edge_features(graphs[i], truth_infos[i])
+        if edge_feats.shape[0] == 0:
+            continue  # skip empty graphs
+        all_edge_features.append(edge_feats)
+        all_edge_labels.append(edge_lbls)
+    if len(all_edge_features) == 0:
+        return None, None
+    batch_edge_features = np.vstack(all_edge_features)
+    batch_edge_labels = np.vstack(all_edge_labels)
+    return batch_edge_features, batch_edge_labels
+
+
+# Main execution starts here
+file_path = '/users/gy22186/mu3e/GNNtrain_data/train_data.parquet'
+awk_data = load_data(file_path)
+
+# Build one graph per frame
+graphs, truth_infos = batch_graphs_by_frame(awk_data)
+
+# Build model with correct input shape
+sample_edge_features, _, _ = extract_edge_features(graphs[0], truth_infos[0])
+model = edge_classifier(input_shape=sample_edge_features.shape[1])
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+# Training parameters
+num_epochs = 2
+batch_size = 8  # Number of graphs (frames) per training batch
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+logging.getLogger("tensorflow").setLevel(logging.ERROR)
+
+steps_per_epoch = len(graphs) // batch_size
+
+with tqdm(total=num_epochs * steps_per_epoch, desc="Training Progress") as pbar:
+    for epoch in range(num_epochs):
+        pbar.set_description(f"Epoch {epoch+1}/{num_epochs}")
+        
+        # Shuffle frames at the start of each epoch for randomness
+        idxs = np.random.permutation(len(graphs))
+        shuffled_graphs = [graphs[i] for i in idxs]
+        shuffled_truth = [truth_infos[i] for i in idxs]
+
+        for step in range(steps_per_epoch):
+            batch_graphs = shuffled_graphs[step*batch_size:(step+1)*batch_size]
+            batch_truth = shuffled_truth[step*batch_size:(step+1)*batch_size]
+
+            batch_feats, batch_labels = prepare_batch_edge_features(batch_graphs, batch_truth, batch_size)
+            if batch_feats is None:
+                tqdm.write(f"Skipping empty batch at epoch {epoch+1}, step {step+1}")
+                pbar.update(1)
+                continue
+
+            batch_feats_tensor = tf.convert_to_tensor(batch_feats, dtype=tf.float32)
+            batch_labels_tensor = tf.convert_to_tensor(batch_labels, dtype=tf.float32)
+
+            loss, acc = model.train_on_batch(batch_feats_tensor, batch_labels_tensor)
+            pbar.set_postfix(loss=f"{loss:.4f}", acc=f"{acc:.4f}")
+            pbar.update(1)
+
+print("Training complete! Saving model...")
+model.save("trained_gnn_model_batched.keras")

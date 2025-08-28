@@ -1,0 +1,302 @@
+import os
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+from functools import partial
+from multiprocessing import Pool, cpu_count
+
+import torch
+import torch.nn as nn
+from torch_geometric.data import Data, Dataset
+from torch_geometric.loader import DataLoader
+import awkward as ak
+import pyarrow.parquet as pq
+from scipy.spatial import cKDTree
+import torch.multiprocessing
+
+# --- Global variables for worker processes ---
+_global_awk_data = None
+_global_config = None
+_global_processed_dir = None
+
+def init_worker(awk_data, config, processed_dir):
+    """Initializer for the multiprocessing Pool."""
+    global _global_awk_data, _global_config, _global_processed_dir
+    _global_awk_data = awk_data
+    _global_config = config
+    _global_processed_dir = processed_dir
+
+def _process_and_save_frame(frame_id):
+    """
+    Worker function: builds a graph AND saves it directly to disk.
+    This avoids returning large objects to the main process.
+    """
+    global _global_awk_data, _global_config, _global_processed_dir
+    
+    try:
+        frame_mask = _global_awk_data['frame_array'] == frame_id
+        frame_hits = _global_awk_data[frame_mask]
+        
+        graph = build_graph_pyg_vectorized(frame_hits, _global_config)
+        
+        if graph is not None and graph.num_edges > 0:
+            # Save the graph directly from the worker
+            torch.save(graph, os.path.join(_global_processed_dir, f'data_{frame_id}.pt'))
+        return True # Signal success
+    except Exception as e:
+        # It's good practice to log or print errors from workers
+        # print(f"Error processing frame {frame_id}: {e}")
+        return False # Signal failure
+
+def build_graph_pyg_vectorized(hits_df, config):
+    """
+    Constructs a PyTorch Geometric Data object from a DataFrame of detector hits
+    using vectorized operations for high performance. (Unchanged)
+    """
+    if not isinstance(hits_df, pd.DataFrame):
+        hits_df = ak.to_dataframe(hits_df)
+
+    hits_df.dropna(subset=['gx', 'gy', 'gz'], inplace=True)
+    if hits_df.empty:
+        return None
+        
+    hits_df = hits_df.sort_values('layer_id').reset_index(drop=True)
+
+    # --- 1. Node Feature Construction ---
+    node_coords = torch.tensor(hits_df[['gx', 'gy', 'gz']].values, dtype=torch.float)
+    node_cat_feats = torch.tensor(hits_df[['layer_id', 'station_id', 'ladder_id', 'chip_id']].values, dtype=torch.float)
+    x = torch.cat([node_coords, node_cat_feats], dim=-1)
+    tids = torch.tensor(hits_df['tid'].values, dtype=torch.long)
+    coords_np = hits_df[['gx', 'gy', 'gz']].values
+
+    all_edge_pairs = []
+    
+    layer_ids = hits_df['layer_id'].unique()
+    layer_indices = {layer: hits_df.index[hits_df['layer_id'] == layer].to_numpy() for layer in layer_ids}
+    kdtrees = {layer: cKDTree(coords_np[indices]) for layer, indices in layer_indices.items() if len(indices) > 0}
+
+    layer_connections = { 0: [1], 1: [0, 2], 2: [1, 3], 3: [2] }
+    k_neighbours = config.get('k_neighbours', 5)
+
+    for layer, neighbours in layer_connections.items():
+        if layer not in layer_indices or layer not in kdtrees: continue
+        
+        current_layer_global_indices = layer_indices[layer]
+
+        for neighbour_layer in neighbours:
+            if neighbour_layer not in layer_indices or neighbour_layer not in kdtrees: continue
+
+            neighbour_layer_global_indices = layer_indices[neighbour_layer]
+            if len(current_layer_global_indices) == 0 or len(neighbour_layer_global_indices) == 0: continue
+
+            neighbour_tree = kdtrees[neighbour_layer]
+            
+            distances, neighbour_local_indices = neighbour_tree.query(
+                coords_np[current_layer_global_indices], 
+                k=min(k_neighbours, len(neighbour_layer_global_indices))
+            )
+
+            if len(neighbour_local_indices.shape) == 1:
+                neighbour_local_indices = neighbour_local_indices.reshape(-1, 1)
+            
+            num_found_neighbors = neighbour_local_indices.shape[1]
+            source_nodes = np.repeat(current_layer_global_indices, num_found_neighbors)
+            target_nodes = neighbour_layer_global_indices[neighbour_local_indices.flatten()]
+            
+            edge_pair = np.stack([source_nodes, target_nodes], axis=1)
+            all_edge_pairs.append(edge_pair)
+
+    if not all_edge_pairs:
+        return Data(x=x, edge_index=torch.empty((2, 0), dtype=torch.long), tids=tids)
+
+    edge_index_np = np.concatenate(all_edge_pairs, axis=0)
+    edge_index_np = edge_index_np[edge_index_np[:, 0] != edge_index_np[:, 1]]
+
+    u, v = edge_index_np[:, 0], edge_index_np[:, 1]
+    
+    source_feats, target_feats = x[u], x[v]
+    coord_diff = source_feats[:, :3] - target_feats[:, :3]
+    edge_attr = torch.cat([source_feats, target_feats, coord_diff], dim=1)
+    edge_y = (tids[u] == tids[v]) & (tids[u] != -1)
+    
+    graph = Data(x=x, edge_index=torch.from_numpy(edge_index_np).t().contiguous(), edge_attr=edge_attr, y=edge_y.float().unsqueeze(1), tids=tids)
+    graph.num_nodes = x.size(0)
+    return graph
+
+
+class Mu3eGraphDataset(Dataset):
+    """
+    Most robust version: Each worker process saves its graph file directly to disk.
+    This avoids all inter-process communication of large data.
+    """
+    # In class Mu3eGraphDataset:
+    def __init__(self, root, file_path, config, transform=None, pre_transform=None):
+        self.raw_file_path = file_path
+        self.config = config
+
+        # --- CHANGE IS HERE ---
+        # This line was added BEFORE super().__init__ to fix the error
+        self.processed_path = os.path.join(root, 'processed')
+
+        self.processed_path = os.path.join(root, 'processed')
+
+        super().__init__(root, transform, pre_transform)
+    
+        # This line now runs AFTER processing is safely skipped or completed
+        self._processed_files = sorted([f for f in os.listdir(self.processed_dir) 
+                                    if f.startswith('data_') and f.endswith('.pt')])
+
+    @property
+    def raw_file_names(self):
+        return [os.path.basename(self.raw_file_path)]
+
+    # In Mu3eGraphDataset:
+
+    # In class Mu3eGraphDataset:
+    @property
+    def processed_file_names(self):
+    # --- THIS ENTIRE METHOD IS THE KEY CHANGE ---
+    # It now simply returns a single flag file name.
+    # The parent class will check if this file exists to decide whether to re-process.
+        return ['processing_complete.flag']
+
+    def process(self):
+        print(f"Processing raw data from {self.raw_file_path}...")
+        awk_data = ak.from_arrow(pq.read_table(self.raw_file_path))
+        
+        awk_data['layer_id'] = awk_data['layer_array']
+        awk_data['station_id'] = awk_data['station_array']
+        awk_data['ladder_id'] = awk_data['ladder_array']
+        awk_data['chip_id'] = awk_data['chip_array']
+        awk_data['tid'] = awk_data['tid_array']
+        
+        frame_ids = np.unique(ak.to_numpy(awk_data['frame_array']))
+        
+        print(f"Found {len(frame_ids)} frames. Building and saving graphs in parallel using {cpu_count()} cores...")
+
+        init_args = (awk_data, self.config, self.processed_dir)
+        with Pool(processes=cpu_count(), initializer=init_worker, initargs=init_args) as pool:
+            # Use imap_unordered for a slight performance gain and better progress bar updates
+            # We don't need the return values, just to iterate through them to ensure completion
+            for _ in tqdm(pool.imap_unordered(_process_and_save_frame, frame_ids, chunksize=100), total=len(frame_ids), desc="Building & Saving"):
+                pass
+        
+        print("\nParallel processing complete.")
+        with open(os.path.join(self.processed_dir, 'processing_complete.flag'), 'w') as f:
+            f.write('done')
+
+    def len(self):
+        return len(self._processed_files)
+
+    def get(self, idx):
+    # Correctly load the graph data with weights_only=False
+        return torch.load(
+            os.path.join(self.processed_dir, self._processed_files[idx]),
+            weights_only=False
+        )
+
+
+class EdgeClassifierMLP(nn.Module):
+    """ An MLP that classifies edges based on their features. (Unchanged) """
+    def __init__(self, input_shape, channels=(32, 64), with_bn=True, activation='relu'):
+        super().__init__()
+        layers = []
+        current_dim = input_shape
+        for channel in channels:
+            layers.append(nn.Linear(current_dim, channel))
+            if with_bn:
+                layers.append(nn.BatchNorm1d(channel))
+            layers.append(nn.ReLU() if activation == 'relu' else nn.GELU())
+            current_dim = channel
+        layers.append(nn.Linear(current_dim, 1))
+        self.network = nn.Sequential(*layers)
+
+    def forward(self, edge_attr):
+        return self.network(edge_attr)
+
+
+# --- Main Training Script ---
+if __name__ == '__main__':
+    try:
+        torch.multiprocessing.set_sharing_strategy('file_system')
+    except RuntimeError:
+        print("Sharing strategy already set. Continuing.")
+
+    # --- Configuration ---
+    file_path = '/users/gy22186/mu3e/five_signal_files/train_data.parquet' #<-- PLEASE PROVIDE THE CORRECT PATH
+    dataset_root = '/users/gy22186/mu3e/five_signal_files/graphs' #<-- Directory to store processed graphs
+
+    if not os.path.exists(file_path):
+        print(f"ERROR: Data file not found at {file_path}")
+    else:
+        graph_config = { 'k_neighbours': 5 }
+        learning_rate = 0.0001
+        batch_size = 1 # Can often increase batch size with this architecture
+        num_epochs = 20
+        num_workers_loader = 8 # Number of workers for the DataLoader
+    
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        print(f"Using device: {device}")
+    
+        # --- Data Loading ---
+        print("Initializing dataset (will process if not already done)...")
+        dataset = Mu3eGraphDataset(root=dataset_root, file_path=file_path, config=graph_config)
+        print(f"Dataset initialized with {len(dataset)} graphs.")
+        print("Inspecting graphs...")
+        if len(dataset) == 0:
+            print("No graphs were processed. Exiting. Check the 'process' method and file paths.")
+        else:
+            train_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers_loader)
+        
+            # --- Model Initialization ---
+            input_dim = 7 + 7 + 3 # 7 source feats + 7 target feats + 3 diff feats
+            model = EdgeClassifierMLP(input_shape=input_dim).to(device)
+            optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+            criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10.0]).to(device))
+        
+            # --- Training Loop ---
+            model.train()
+            print("Starting training...")
+            for epoch in range(num_epochs):
+                total_loss, total_acc, num_batches = 0, 0, 0
+                
+                progress_bar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}")
+                for batch in progress_bar:
+                    if not hasattr(batch, 'edge_index') or batch.edge_index.shape[1] == 0:
+                        continue
+                    
+                    batch = batch.to(device)
+                    optimizer.zero_grad()
+                    
+                    out = model(batch.edge_attr)
+                        # === DEBUG START ===
+                    pos_frac = (batch.y == 1).sum().item() / len(batch.y)
+                    print(f"\n[DEBUG] Positive edge fraction: {pos_frac:.4f}")
+
+                    with torch.no_grad():
+                        logits = out
+                        pred_probs = torch.sigmoid(logits)
+                        print(f"[DEBUG] Logits stats: min={logits.min().item():.4f}, max={logits.max().item():.4f}")
+                        print(f"[DEBUG] Sigmoid output stats: min={pred_probs.min().item():.4f}, max={pred_probs.max().item():.4f}")
+                    # === DEBUG END ===
+
+                    loss = criterion(out, batch.y)
+                    
+                    loss.backward()
+                    optimizer.step()
+                    
+                    pred = (torch.sigmoid(out) > 0.5).float()
+                    correct = (pred == batch.y).sum()
+                    acc = correct / len(batch.y)
+                    
+                    total_loss += loss.item()
+                    total_acc += acc.item()
+                    num_batches += 1
+                    progress_bar.set_postfix(loss=f"{loss.item():.4f}", acc=f"{acc.item():.4f}")
+        
+                avg_loss = total_loss / num_batches if num_batches > 0 else 0
+                avg_acc = total_acc / num_batches if num_batches > 0 else 0
+                print(f"Epoch {epoch+1:02d} | Avg Loss: {avg_loss:.4f} | Avg Acc: {avg_acc:.4f}")
+                
+            print("\nTraining complete! Saving model...")
+            torch.save(model.state_dict(), "edge_classifier_mlp_pyg.pth")

@@ -1,0 +1,309 @@
+import awkward as ak
+import numpy as np
+import os
+import tensorflow as tf
+from tensorflow import keras
+from sklearn.utils import shuffle
+import pyarrow.parquet as pq
+import pandas as pd
+import networkx as nx
+from scipy.spatial import cKDTree
+from tqdm import tqdm
+import logging
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+
+# --- Load Model ---
+model_path = "/users/gy22186/mu3e/trained_gnn_model_less_data.keras"
+model = tf.keras.models.load_model(model_path)
+print("Model loaded successfully.")
+
+# --- Data Loading and Graph Building (Functions are mostly unchanged) ---
+
+def load_data(file_path):
+    table = pq.read_table(file_path)
+    awk_array = ak.from_arrow(table)
+    # Flatten nested arrays to 1D
+    flat_dict = {key: ak.to_numpy(awk_array[key]).flatten() for key in awk_array.fields}
+    awk_array = ak.Array(flat_dict)
+    print(f"Loaded dataset: {len(awk_array['hit_ID'])} hits")
+    return awk_array
+
+def build_graph(frame_hits, k_neighbours=5):
+    # This function is already correct for building a graph from a single frame's hits.
+    # No changes are needed here.
+    gx = ak.to_numpy(frame_hits['gx'])
+    gy = ak.to_numpy(frame_hits['gy'])
+    gz = ak.to_numpy(frame_hits['gz'])
+    layers = ak.to_numpy(frame_hits['layer_array'])
+    stations = ak.to_numpy(frame_hits['station_array'])
+    ladders = ak.to_numpy(frame_hits['ladder_array'])
+    chips = ak.to_numpy(frame_hits['chip_array'])
+    hit_IDs = ak.to_numpy(frame_hits['hit_ID'])
+    tids = ak.to_numpy(frame_hits['tid_array'])
+    traj_p = ak.to_numpy(frame_hits['traj_p'])
+    traj_pt = ak.to_numpy(frame_hits['traj_pt'])
+    traj_lambda = ak.to_numpy(frame_hits['traj_lambda'])
+    traj_phi = ak.to_numpy(frame_hits['traj_phi'])
+
+    valid_mask = ~(np.isnan(gx) | np.isnan(gy) | np.isnan(gz))
+    gx, gy, gz = gx[valid_mask], gy[valid_mask], gz[valid_mask]
+    layers, stations, ladders, chips = layers[valid_mask], stations[valid_mask], ladders[valid_mask], chips[valid_mask]
+    hit_IDs, tids = hit_IDs[valid_mask], tids[valid_mask]
+    traj_p, traj_pt, traj_lambda, traj_phi = traj_p[valid_mask], traj_pt[valid_mask], traj_lambda[valid_mask], traj_phi[valid_mask]
+
+    coords = np.column_stack((gx, gy, gz))
+    if coords.shape[0] == 0:
+        return None, None
+
+    G = nx.Graph()
+    node_truth_info = {
+        i: {
+            "hit_ID": hit_IDs[i], "tid": tids[i], "traj_p": traj_p[i],
+            "traj_pt": traj_pt[i], "traj_lambda": traj_lambda[i], "traj_phi": traj_phi[i]
+        } for i in range(len(coords))
+    }
+
+    for i, (x, y, z, layer, station, ladder, chip) in enumerate(zip(gx, gy, gz, layers, stations, ladders, chips)):
+        G.add_node(i, gx=x, gy=y, gz=z, layer=layer, station=station, ladder=ladder, chip=chip)
+
+    layer_indices = {layer: np.where(layers == layer)[0] for layer in np.unique(layers)}
+    kdtrees = {layer: cKDTree(coords[layer_indices[layer]]) for layer in layer_indices}
+
+    layer_connections = {1: [2], 2: [1, 3], 3: [2, 4], 4: [3]}
+
+    for layer, neighbours in layer_connections.items():
+        if layer not in layer_indices:
+            continue
+        layer_nodes = layer_indices[layer]
+        for neighbour_layer in neighbours:
+            if neighbour_layer not in layer_indices:
+                continue
+            neighbour_nodes = layer_indices[neighbour_layer]
+            neighbour_tree = kdtrees[neighbour_layer]
+            for i in layer_nodes:
+                if i >= len(coords): continue
+                distances, indices = neighbour_tree.query(coords[i], k=min(k_neighbours, len(neighbour_nodes)))
+                if np.isscalar(indices):
+                    indices = [indices]
+                for idx in indices:
+                    j = neighbour_nodes[idx]
+                    G.add_edge(i, j)
+    return G, node_truth_info
+
+def extract_edge_features(G, node_truth_info):
+    # This function is also correct. No changes needed.
+    edge_features = []
+    edge_list = []
+    for u, v in G.edges():
+        source_feats = np.array([G.nodes[u]['gx'], G.nodes[u]['gy'], G.nodes[u]['gz']])
+        target_feats = np.array([G.nodes[v]['gx'], G.nodes[v]['gy'], G.nodes[v]['gz']])
+        feature_diff = source_feats - target_feats
+        categorical_feats = np.array([
+            G.nodes[u]['layer'], G.nodes[u]['station'], G.nodes[u]['ladder'], G.nodes[u]['chip'],
+            G.nodes[v]['layer'], G.nodes[v]['station'], G.nodes[v]['ladder'], G.nodes[v]['chip']
+        ])
+        edge_feat = np.concatenate([source_feats, target_feats, feature_diff, categorical_feats])
+        edge_features.append(edge_feat)
+        edge_list.append((u, v))
+    return np.array(edge_features), edge_list
+
+# --- Main Processing Logic ---
+
+# 1. Load test data
+file_path = '/users/gy22186/mu3e/two_signal_files/test_data.parquet'
+awk_data = load_data(file_path)
+
+### MODIFICATION ###
+# We no longer use the old `batch_data` function. Instead, we replicate the
+# "one graph per frame" logic from your training script.
+
+# 2. Get all unique frames from the test data
+all_frames = np.unique(ak.to_numpy(awk_data['frame_array']))
+
+# 3. Build one graph for each frame
+frame_graphs = []
+frame_truth_info = []
+
+print("Building graphs for each frame from the test set...")
+for frame_id in tqdm(all_frames, desc="Building Frame Graphs"):
+    frame_mask = (ak.to_numpy(awk_data['frame_array']) == frame_id)
+    frame_hits = awk_data[frame_mask]
+
+    if len(frame_hits['hit_ID']) == 0:
+        continue
+
+    # Use the existing build_graph function on the hits from this single frame
+    G, truth_info = build_graph(frame_hits)
+
+    if G is not None and G.number_of_nodes() > 0:
+        frame_graphs.append(G)
+        frame_truth_info.append(truth_info)
+
+print(f"Built {len(frame_graphs)} graphs from the test data.")
+
+# 4. Predict on each frame's graph
+frame_predictions = []
+with tqdm(total=len(frame_graphs), desc="Predicting Edges", unit="frame") as pbar:
+    for frame_idx, G in enumerate(frame_graphs):
+        truth_info = frame_truth_info[frame_idx]
+        
+        # Extract features for the edges in the current frame's graph
+        edge_feats, edge_list = extract_edge_features(G, truth_info)
+
+        predictions_for_frame = []
+        if edge_feats.shape[0] > 0:
+            # Predict on this frame's edges
+            predictions = model.predict_on_batch(edge_feats)
+            predictions_for_frame = predictions.flatten().tolist()
+
+        frame_predictions.append({
+            "frame_idx": frame_idx,
+            "edges": edge_list,
+            "scores": predictions_for_frame
+        })
+        pbar.update(1)
+
+print("Predictions stored in memory. Ready for track construction.")
+
+# --- Track Construction and Saving ---
+
+def construct_tracks(all_graphs, all_predictions, all_truth_info, min_track_size=4, score_threshold=0.9):
+    all_reconstructed_tracks = []
+
+    ### MODIFICATION ###
+    # Renamed variables for clarity (e.g., batch_idx -> frame_idx)
+    # The core logic here was mostly fine, as it processes one graph at a time.
+    
+    for frame_idx, pred_data in enumerate(all_predictions):
+        edges, scores = pred_data["edges"], pred_data["scores"]
+        G = all_graphs[frame_idx]
+        truth_info = all_truth_info[frame_idx]
+        
+        frame_tracks = []
+        scored_edges = sorted(zip(edges, scores), key=lambda x: x[1], reverse=True)
+        
+        # Keep track of nodes that have already been assigned to a track
+        used_nodes = set()
+
+        for (u, v), score in scored_edges:
+            if score < score_threshold:
+                break # Since edges are sorted, we can stop early
+
+            # If both nodes are already in tracks, skip this edge
+            if u in used_nodes and v in used_nodes:
+                continue
+
+            # Find existing tracks that contain u or v, but not both
+            track_for_u = -1
+            track_for_v = -1
+            for i, track in enumerate(frame_tracks):
+                if u in track["nodes"]:
+                    track_for_u = i
+                if v in track["nodes"]:
+                    track_for_v = i
+            
+            # Case 1: Merge two existing tracks
+            if track_for_u != -1 and track_for_v != -1 and track_for_u != track_for_v:
+                # Merge track_for_v into track_for_u
+                track1 = frame_tracks[track_for_u]
+                track2 = frame_tracks[track_for_v]
+                track1["nodes"].update(track2["nodes"])
+                for key in ["hit_IDs", "tids", "traj_ps", "traj_pts", "traj_lambdas", "traj_phis"]:
+                     track1[key].extend(track2[key])
+                # Mark the merged track for removal
+                frame_tracks[track_for_v] = None
+            
+            # Case 2: Add an edge to an existing track
+            elif track_for_u != -1 and track_for_v == -1: # Add v to u's track
+                frame_tracks[track_for_u]["nodes"].add(v)
+                used_nodes.add(v)
+                for key, val in truth_info[v].items():
+                    frame_tracks[track_for_u][key+"s"].append(val)
+            
+            elif track_for_v != -1 and track_for_u == -1: # Add u to v's track
+                frame_tracks[track_for_v]["nodes"].add(u)
+                used_nodes.add(u)
+                for key, val in truth_info[u].items():
+                    frame_tracks[track_for_v][key+"s"].append(val)
+
+            # Case 3: Create a new track
+            elif track_for_u == -1 and track_for_v == -1:
+                new_track = {
+                    "nodes": {u, v},
+                    "hit_IDs": [truth_info[u]["hit_ID"], truth_info[v]["hit_ID"]],
+                    "tids": [truth_info[u]["tid"], truth_info[v]["tid"]],
+                    "traj_ps": [truth_info[u]["traj_p"], truth_info[v]["traj_p"]],
+                    "traj_pts": [truth_info[u]["traj_pt"], truth_info[v]["traj_pt"]],
+                    "traj_lambdas": [truth_info[u]["traj_lambda"], truth_info[v]["traj_lambda"]],
+                    "traj_phis": [truth_info[u]["traj_phi"], truth_info[v]["traj_phi"]],
+                }
+                frame_tracks.append(new_track)
+                used_nodes.add(u)
+                used_nodes.add(v)
+        
+        # Clean up merged tracks and filter by size
+        final_frame_tracks = [t for t in frame_tracks if t is not None and len(t["nodes"]) >= min_track_size]
+        all_reconstructed_tracks.append(final_frame_tracks)
+        
+        if len(final_frame_tracks) > 0:
+            print(f"Frame {frame_idx}: Found {len(final_frame_tracks)} valid tracks.")
+
+    return all_reconstructed_tracks
+
+
+def save_tracks(reconstructed_tracks, all_truth_info, output_path):
+    track_data_list = []
+    global_track_id = 0
+
+    ### MODIFICATION ###
+    # Changed batch_idx to frame_idx for clarity
+    for frame_idx, tracks_in_frame in enumerate(reconstructed_tracks):
+        for local_track_idx, track in enumerate(tracks_in_frame):
+            
+            # To avoid duplicates from the greedy algorithm, convert lists to sets and back
+            unique_hit_ids = sorted(list(set(track["hit_IDs"])))
+            
+            # Create a mapping from hit_ID back to its original truth info
+            # This is a bit inefficient but robust
+            hit_id_to_truth = {}
+            truth_info_for_frame = all_truth_info[frame_idx]
+            for node_idx in truth_info_for_frame:
+                hit_id_to_truth[truth_info_for_frame[node_idx]['hit_ID']] = truth_info_for_frame[node_idx]
+
+            # Rebuild truth lists based on unique hits
+            tids = [hit_id_to_truth[hid]['tid'] for hid in unique_hit_ids]
+            traj_ps = [hit_id_to_truth[hid]['traj_p'] for hid in unique_hit_ids]
+            traj_pts = [hit_id_to_truth[hid]['traj_pt'] for hid in unique_hit_ids]
+            traj_lambdas = [hit_id_to_truth[hid]['traj_lambda'] for hid in unique_hit_ids]
+            traj_phis = [hit_id_to_truth[hid]['traj_phi'] for hid in unique_hit_ids]
+
+            track_data_list.append({
+                "frame_id": all_frames[frame_idx], # Saving the actual frame ID
+                "track_id": global_track_id,
+                "hit_IDs": unique_hit_ids,
+                "tids": tids,
+                "traj_ps": traj_ps,
+                "traj_pts": traj_pts,
+                "traj_lambdas": traj_lambdas,
+                "traj_phis": traj_phis,
+                "num_hits": len(unique_hit_ids),
+            })
+            global_track_id += 1
+
+    if not track_data_list:
+        print("No tracks were constructed. Output file will be empty.")
+        return
+
+    df = pd.DataFrame(track_data_list)
+    df.to_csv(output_path, index=False)
+    print(f"Saved {len(df)} tracks to {output_path}")
+
+# Debugging: Print edge statistics for each frame
+for frame_idx, pred_data in enumerate(frame_predictions):
+    edges, scores = pred_data["edges"], pred_data["scores"]
+    print(f"Frame {frame_idx}: {len(edges)} edges, max score: {max(scores) if scores else 'N/A'}")
+    
+# 5. Construct and save the final tracks
+reconstructed_tracks = construct_tracks(frame_graphs, frame_predictions, frame_truth_info)
+save_tracks(reconstructed_tracks, frame_truth_info, "/users/gy22186/mu3e/two_signal_files/predicted_tracks_corrected.csv")
