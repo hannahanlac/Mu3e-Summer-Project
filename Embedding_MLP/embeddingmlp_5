@@ -1,0 +1,448 @@
+import os
+import math
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+from scipy.spatial import cKDTree
+import awkward as ak
+import pyarrow.parquet as pq
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+import random
+
+# -------------------- Config --------------------
+class CFG:
+    train_path = "/users/gy22186/mu3e/new_two_signal_files/train_data.parquet"
+    test_path  = "/users/gy22186/mu3e/new_two_signal_files/test_data.parquet"
+    batch_size = 512
+    test_batch_size = 1024
+    k_neighbours = 50
+    d2_max = 1.5
+    top_hard_neg_per_anchor = 8
+    add_random_neg = True
+    margin = 1.0
+    w_genuine_start = 1.2
+    w_genuine_final = 2.0
+    w_schedule_epoch = 5
+    embedding_dim = 256
+    hidden = [256, 256, 256, 256]
+    lr = 8e-4
+    weight_decay = 5e-5
+    epochs = 30
+    grad_clip = 5.0
+    seed = 42
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    log_dir = "./logs_embed"
+    save_ckpt = "embedding_mlp_hinge.pt"
+    save_on_success = False
+    num_workers = 0
+    pct_log = (50, 75, 90)
+
+# -------------------- Repro --------------------
+def set_seed(seed=42):
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+# -------------------- IO --------------------
+def load_data(file_path):
+    table = pq.read_table(file_path)
+    awk_array = ak.from_arrow(table)
+    flat = {k: ak.to_numpy(awk_array[k]).flatten() for k in awk_array.fields}
+    return ak.Array(flat)
+
+# -------------------- Stats --------------------
+def compute_global_stats(file_path):
+    awk = load_data(file_path)
+    gx = ak.to_numpy(awk['gx']); gy = ak.to_numpy(awk['gy']); gz = ak.to_numpy(awk['gz'])
+    layer = ak.to_numpy(awk['layer_array'])
+    valid = ~(np.isnan(gx) | np.isnan(gy) | np.isnan(gz))
+    gx, gy, gz, layer = gx[valid], gy[valid], gz[valid], layer[valid]
+    r = np.sqrt(gx**2 + gy**2)
+    z = gz
+    stats = {
+        'r_mean': r.mean(), 'r_std': r.std() + 1e-9,
+        'z_mean': z.mean(), 'z_std': z.std() + 1e-9,
+        'layer_mean': layer.mean(), 'layer_std': layer.std() + 1e-9
+    }
+    print("Global stats:", stats)
+    return stats
+
+# -------------------- Feature Encoding --------------------
+def encode_hits(gx, gy, gz, layer, stats):
+    r = np.sqrt(gx**2 + gy**2)
+    phi = np.arctan2(gy, gx)
+    feats = np.stack([
+        (r - stats['r_mean']) / stats['r_std'],
+        np.sin(phi),
+        np.cos(phi),
+        (gz - stats['z_mean']) / stats['z_std'],
+        (layer - stats['layer_mean']) / stats['layer_std']
+    ], axis=1)
+    return feats  # shape (N,5)
+
+# -------------------- Pair Builder --------------------
+def build_hit_pairs_from_frame(frame_hits, stats,
+                               k_neighbours=50,
+                               d2_max=1.5,
+                               add_random_neg=True,
+                               rng=None,
+                               top_hard=8):
+    if rng is None:
+        rng = np.random.default_rng()
+    gx = ak.to_numpy(frame_hits['gx']); gy = ak.to_numpy(frame_hits['gy']); gz = ak.to_numpy(frame_hits['gz'])
+    layers = ak.to_numpy(frame_hits['layer_array']); tids = ak.to_numpy(frame_hits['tid_array'])
+    valid = ~(np.isnan(gx) | np.isnan(gy) | np.isnan(gz))
+    gx, gy, gz, layers, tids = gx[valid], gy[valid], gz[valid], layers[valid], tids[valid]
+    n = len(gx)
+    if n == 0:
+        return [], 0, 0
+    cart = np.stack([gx, gy, gz], axis=1)
+    tree = cKDTree(cart)
+    feats = encode_hits(gx, gy, gz, layers, stats)
+
+    tid_to_idx = {}
+    for i, t in enumerate(tids):
+        if t >= 0:
+            tid_to_idx.setdefault(t, []).append(i)
+
+    pairs = []
+    added = set()
+    pos_count = 0
+    neg_count = 0
+
+    for t, idxs in tid_to_idx.items():
+        if len(idxs) < 2:
+            continue
+        idxs_sorted = sorted(idxs, key=lambda k: layers[k])
+        for a in range(len(idxs_sorted)):
+            for b in range(a + 1, len(idxs_sorted)):
+                i, j = idxs_sorted[a], idxs_sorted[b]
+                if abs(layers[i] - layers[j]) != 1:
+                    continue
+                key = (min(i, j), max(i, j))
+                if key in added:
+                    continue
+                pairs.append((feats[i], feats[j], 1))
+                added.add(key)
+                pos_count += 1
+
+    for i in range(n):
+        kk = min(k_neighbours + 1, n)
+        dists, idxs = tree.query(cart[i], k=kk)
+        if np.isscalar(idxs):
+            idxs = [idxs]; dists = [dists]
+        candidates = []
+        for j, d in zip(idxs, dists):
+            if j == i:
+                continue
+            if abs(layers[i] - layers[j]) != 1:
+                continue
+            d2 = d * d
+            if d2 > d2_max:
+                continue
+            label = 1 if (tids[i] == tids[j] and tids[i] >= 0) else 0
+            candidates.append((d2, i, j, label))
+        pos_c = [c for c in candidates if c[3] == 1]
+        neg_c = [c for c in candidates if c[3] == 0]
+        neg_c.sort(key=lambda x: x[0])
+        neg_c = neg_c[:top_hard]
+        for d2, ii, jj, lbl in pos_c + neg_c:
+            key = (min(ii, jj), max(ii, jj))
+            if key in added:
+                continue
+            pairs.append((feats[ii], feats[jj], lbl))
+            added.add(key)
+            if lbl == 1:
+                pos_count += 1
+            else:
+                neg_count += 1
+        if add_random_neg:
+            tries = 0
+            added_random = False
+            while tries < 30 and not added_random:
+                j = rng.integers(0, n); tries += 1
+                if j == i or tids[j] == tids[i]:
+                    continue
+                if abs(layers[i] - layers[j]) != 1 and tries < 8:
+                    continue
+                key = (min(i, j), max(i, j))
+                if key in added:
+                    continue
+                pairs.append((feats[i], feats[j], 0))
+                added.add(key)
+                neg_count += 1
+                added_random = True
+                break
+    return pairs, pos_count, neg_count
+
+# -------------------- Dataset --------------------
+class HitPairDataset(Dataset):
+    def __init__(self, data_path, stats, k_neighbours, d2_max, add_random_neg):
+        print(f"Building dataset from {data_path} ...")
+        self.hit_pairs = []
+        awk = load_data(data_path)
+        frame_ids = np.unique(ak.to_numpy(awk['frame_array']))
+        rng = np.random.default_rng(CFG.seed)
+        total_pos = 0
+        total_neg = 0
+        frames_more_pos = 0
+        for fid in tqdm(frame_ids, desc="Frames"):
+            mask = ak.to_numpy(awk['frame_array']) == fid
+            frame_hits = awk[mask]
+            frame_pairs, p_cnt, n_cnt = build_hit_pairs_from_frame(
+                frame_hits,
+                stats,
+                k_neighbours=k_neighbours,
+                d2_max=d2_max,
+                add_random_neg=add_random_neg,
+                rng=rng,
+                top_hard=CFG.top_hard_neg_per_anchor
+            )
+            if p_cnt > n_cnt:
+                frames_more_pos += 1
+            if frame_pairs:
+                self.hit_pairs.extend(frame_pairs)
+                total_pos += p_cnt
+                total_neg += n_cnt
+        print(f"Total pairs: {len(self.hit_pairs)} (pos={total_pos}, neg={total_neg}, ratio={total_neg/max(total_pos,1):.2f})")
+        print(f"Frames with more positives than negatives: {frames_more_pos}/{len(frame_ids)}")
+
+    def __len__(self):
+        return len(self.hit_pairs)
+
+    def __getitem__(self, idx):
+        x1, x2, label = self.hit_pairs[idx]
+        return (torch.tensor(x1, dtype=torch.float32),
+                torch.tensor(x2, dtype=torch.float32),
+                torch.tensor(label, dtype=torch.float32))
+
+# -------------------- Model --------------------
+class EmbeddingMLP(nn.Module):
+    def __init__(self, input_dim=5, hidden=None, embedding_dim=256, activation=nn.ReLU, scale_init=2.0):
+        super().__init__()
+        hidden = hidden or [256, 256, 256, 256]
+        layers = []
+        last = input_dim
+        for h in hidden:
+            layers += [nn.Linear(last, h), activation()]
+            last = h
+        layers.append(nn.Linear(last, embedding_dim))
+        self.net = nn.Sequential(*layers)
+        self.scale = nn.Parameter(torch.tensor(scale_init, dtype=torch.float32))
+
+    def forward(self, x):
+        return self.net(x) * self.scale
+
+# -------------------- Loss (paper form) --------------------
+class SquaredHingePairLoss(nn.Module):
+    def __init__(self, margin=1.0, w_init=1.2):
+        super().__init__()
+        self.margin = margin
+        self.w_genuine = w_init
+
+    def set_w(self, w):
+        self.w_genuine = w
+
+    def forward(self, e1, e2, label):
+        d2 = (e1 - e2).pow(2).sum(1)
+        pos_mask = (label == 1)
+        neg_mask = (label == 0)
+        pos_d2 = d2[pos_mask]
+        neg_d2 = d2[neg_mask]
+
+        L_pos = pos_d2.mean() if pos_d2.numel() else torch.zeros([], device=d2.device)
+        if neg_d2.numel():
+            hinge_terms = (self.margin - neg_d2).clamp(min=0)
+            L_neg = hinge_terms.mean()
+            active_frac = (hinge_terms > 0).float().mean().item()
+        else:
+            L_neg = torch.zeros([], device=d2.device)
+            active_frac = 0.0
+
+        loss = self.w_genuine * L_pos + L_neg
+        stats = {
+            'pos_mean_d2': pos_d2.mean().item() if pos_d2.numel() else float('nan'),
+            'neg_mean_d2': neg_d2.mean().item() if neg_d2.numel() else float('nan'),
+            'active_neg_frac': active_frac
+        }
+        return loss, stats
+
+# -------------------- Utility --------------------
+def _percentiles(arr, qs):
+    if len(arr) == 0:
+        return {f"p{q}": float('nan') for q in qs}
+    vals = np.percentile(arr, qs)
+    return {f"p{q}": v for q, v in zip(qs, vals)}
+
+# -------------------- Training --------------------
+def train_epoch(model, loader, optimizer, criterion, device, epoch):
+    model.train()
+    total_loss = 0.0
+    pos_vals = []
+    neg_vals = []
+    act_vals = []
+    neg_d2_collect = []
+
+    pbar = tqdm(loader, desc=f"Train {epoch}", unit="batch")
+    for x1, x2, label in pbar:
+        x1 = x1.to(device); x2 = x2.to(device); label = label.to(device)
+        e1 = model(x1); e2 = model(x2)
+        loss, stats = criterion(e1, e2, label)
+
+        optimizer.zero_grad()
+        loss.backward()
+        if CFG.grad_clip:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), CFG.grad_clip)
+        optimizer.step()
+
+        total_loss += loss.item()
+        if not math.isnan(stats['pos_mean_d2']):
+            pos_vals.append(stats['pos_mean_d2'])
+        if not math.isnan(stats['neg_mean_d2']):
+            neg_vals.append(stats['neg_mean_d2'])
+        act_vals.append(stats['active_neg_frac'])
+
+        d2_batch = (e1 - e2).pow(2).sum(1).detach().cpu().numpy()
+        lbl_batch = label.cpu().numpy()
+        neg_d2_collect.append(d2_batch[lbl_batch == 0])
+
+        pbar.set_postfix(loss=loss.item(),
+                         pos=stats['pos_mean_d2'],
+                         neg=stats['neg_mean_d2'],
+                         act=stats['active_neg_frac'])
+
+    avg_loss = total_loss / len(loader)
+    pos_mean = np.mean(pos_vals) if pos_vals else float('nan')
+    neg_mean = np.mean(neg_vals) if neg_vals else float('nan')
+    act_mean = np.mean(act_vals) if act_vals else 0.0
+    neg_d2_all = np.concatenate(neg_d2_collect) if neg_d2_collect else np.array([])
+    pct = _percentiles(neg_d2_all, CFG.pct_log)
+    print(f"Epoch {epoch} | Loss {avg_loss:.4f} | pos_d2 {pos_mean:.4f} | neg_d2 {neg_mean:.4f} | act_neg {act_mean:.3f} "
+          + " ".join([f"neg_p{q}={pct[f'p{q}']:.3f}" for q in CFG.pct_log]))
+    return avg_loss, pos_mean, neg_mean, act_mean, pct
+
+# -------------------- Evaluation --------------------
+def evaluate(model, loader, criterion, device, tag="Test"):
+    model.eval()
+    all_d2 = []
+    all_labels = []
+    total_loss = 0.0
+    with torch.no_grad():
+        for x1, x2, label in tqdm(loader, desc=f"{tag}", unit="batch"):
+            x1 = x1.to(device); x2 = x2.to(device); label = label.to(device)
+            e1 = model(x1); e2 = model(x2)
+            d2 = (e1 - e2).pow(2).sum(1)
+            loss, _ = criterion(e1, e2, label)
+            total_loss += loss.item()
+            all_d2.append(d2.cpu())
+            all_labels.append(label.cpu())
+
+    all_d2 = torch.cat(all_d2).numpy()
+    all_labels = torch.cat(all_labels).numpy()
+    pos_d2 = all_d2[all_labels == 1]
+    neg_d2 = all_d2[all_labels == 0]
+    print(f"{tag} Loss {total_loss / len(loader):.4f} | pos_d2 {pos_d2.mean():.4f} | neg_d2 {neg_d2.mean():.4f}")
+
+    os.makedirs(CFG.log_dir, exist_ok=True)
+    plt.figure(figsize=(6,5))
+    plt.hist(pos_d2, bins=60, alpha=0.6, label='Genuine', density=True)
+    plt.hist(neg_d2, bins=60, alpha=0.6, label='Fake', density=True)
+    plt.axvline(CFG.margin, color='k', ls='--', label='Margin')
+    plt.xlabel('Squared Distance d^2'); plt.ylabel('Density')
+    plt.legend(); plt.grid(True); plt.tight_layout()
+    plt.savefig(os.path.join(CFG.log_dir, f"d2_hist_{tag.lower()}.png"))
+    plt.close()
+
+# -------------------- Main --------------------
+def main():
+    set_seed(CFG.seed)
+    stats = compute_global_stats(CFG.train_path)
+
+    print("Building training dataset...")
+    train_dataset = HitPairDataset(
+        CFG.train_path, stats,
+        k_neighbours=CFG.k_neighbours,
+        d2_max=CFG.d2_max,
+        add_random_neg=CFG.add_random_neg
+    )
+    train_loader = DataLoader(train_dataset, batch_size=CFG.batch_size,
+                              shuffle=True, num_workers=CFG.num_workers, pin_memory=True)
+
+    print("Building test dataset...")
+    test_dataset = HitPairDataset(
+        CFG.test_path, stats,
+        k_neighbours=CFG.k_neighbours,
+        d2_max=CFG.d2_max,
+        add_random_neg=CFG.add_random_neg
+    )
+    test_loader = DataLoader(test_dataset, batch_size=CFG.test_batch_size,
+                             shuffle=False, num_workers=CFG.num_workers, pin_memory=True)
+
+    model = EmbeddingMLP(
+        input_dim=5,
+        hidden=CFG.hidden,
+        embedding_dim=CFG.embedding_dim,
+        activation=nn.ReLU
+    ).to(CFG.device)
+
+    criterion = SquaredHingePairLoss(margin=CFG.margin, w_init=CFG.w_genuine_start)
+
+    decay, no_decay = [], []
+    last_linear_name = f"net.{len(model.net)-1}.weight"
+    for n, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        if n.endswith('scale') or n == last_linear_name:
+            no_decay.append(p)
+        else:
+            decay.append(p)
+    optimizer = torch.optim.AdamW([
+        {'params': decay, 'weight_decay': CFG.weight_decay},
+        {'params': no_decay, 'weight_decay': 0.0}
+    ], lr=CFG.lr)
+
+    os.makedirs(CFG.log_dir, exist_ok=True)
+
+    wg_drop_patience = 3
+    wg_drop_counter = 0
+    wg_temporal_value = 1.6
+
+    for epoch in range(1, CFG.epochs + 1):
+        _, pos_mean, neg_mean, act_mean, pct = train_epoch(model, train_loader, optimizer, criterion, CFG.device, epoch)
+
+        try:
+            print(f"model.scale = {model.scale.item():.4f}")
+        except Exception:
+            pass
+
+        neg_p90 = pct.get('p90', float('nan'))
+
+        if act_mean > 0.90 and (not math.isnan(neg_p90) and neg_p90 < CFG.margin):
+            wg_drop_counter += 1
+            if wg_drop_counter >= wg_drop_patience and criterion.w_genuine > wg_temporal_value:
+                old_w = criterion.w_genuine
+                criterion.set_w(wg_temporal_value)
+                print(f"Epoch {epoch}: active_neg_frac={act_mean:.3f}, neg_p90={neg_p90:.3f} -> lower w_genuine {old_w} -> {wg_temporal_value}")
+                wg_drop_counter = 0
+        else:
+            wg_drop_counter = 0
+
+        if not math.isnan(neg_p90) and neg_p90 > CFG.margin and criterion.w_genuine < CFG.w_genuine_final:
+            criterion.set_w(CFG.w_genuine_final)
+            print(f"Epoch {epoch}: neg_p90={neg_p90:.3f} > margin -> set w_genuine -> {CFG.w_genuine_final}")
+            if CFG.save_on_success:
+                torch.save(model.state_dict(), CFG.save_ckpt)
+                print(f"Checkpoint saved to {CFG.save_ckpt}")
+
+        if epoch % 5 == 0 or epoch == CFG.epochs:
+            evaluate(model, test_loader, criterion, CFG.device, tag=f"Test_ep{epoch}")
+
+    torch.save(model.state_dict(), CFG.save_ckpt)
+    print(f"Saved model: {CFG.save_ckpt}")
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,281 @@
+import os
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+from scipy.spatial import cKDTree
+import awkward as ak
+import pyarrow.parquet as pq
+from tqdm import tqdm
+import random
+import matplotlib.pyplot as plt
+
+# -------------------- Load Data --------------------
+def load_data(file_path):
+    table = pq.read_table(file_path)
+    awk_array = ak.from_arrow(table)
+    flat_dict = {key: ak.to_numpy(awk_array[key]).flatten() for key in awk_array.fields}
+    return ak.Array(flat_dict)
+
+# -------------------- Pair Builder --------------------
+def build_hit_pairs_from_frame(frame_hits, k_neighbours=50, d2_max=1.5):
+    gx = ak.to_numpy(frame_hits['gx'])
+    gy = ak.to_numpy(frame_hits['gy'])
+    gz = ak.to_numpy(frame_hits['gz'])
+    layers = ak.to_numpy(frame_hits['layer_array'])
+    tids = ak.to_numpy(frame_hits['tid_array'])
+
+    valid_mask = ~(np.isnan(gx) | np.isnan(gy) | np.isnan(gz))
+    gx, gy, gz = gx[valid_mask], gy[valid_mask], gz[valid_mask]
+    layers = layers[valid_mask]
+    tids = tids[valid_mask]
+
+    coords = np.stack([gx, gy, gz], axis=1)
+    if coords.shape[0] == 0:
+        return []
+
+    layer_indices = {layer: np.where(layers == layer)[0] for layer in np.unique(layers)}
+    kdtrees = {layer: cKDTree(coords[layer_indices[layer]]) for layer in layer_indices}
+
+    layer_connections = {
+        1: [2],
+        2: [1, 3],
+        3: [2, 4],
+        4: [3]
+    }
+
+    pairs = []
+    added_pairs = set()
+
+    # All true pairs
+    tid_to_indices = {}
+    for i, tid in enumerate(tids):
+        if tid < 0:
+            continue
+        tid_to_indices.setdefault(tid, []).append(i)
+
+    for tid, indices in tid_to_indices.items():
+        for i in range(len(indices)):
+            for j in range(i + 1, len(indices)):
+                idx_i, idx_j = indices[i], indices[j]
+                if abs(layers[idx_i] - layers[idx_j]) == 1:
+                    key = (min(idx_i, idx_j), max(idx_i, idx_j))
+                    if key not in added_pairs:
+                        pairs.append((coords[idx_i], coords[idx_j], 1))
+                        added_pairs.add(key)
+
+    # Hard negatives & missed positives
+    for layer, neighbors in layer_connections.items():
+        if layer not in layer_indices:
+            continue
+        for neighbor in neighbors:
+            if neighbor not in layer_indices:
+                continue
+
+            source_idx = layer_indices[layer]
+            target_idx = layer_indices[neighbor]
+            tree = kdtrees[neighbor]
+
+            for i in source_idx:
+                if len(target_idx) == 0:
+                    continue
+                dists, idxs = tree.query(coords[i], k=min(k_neighbours, len(target_idx)))
+                idxs = [idxs] if np.isscalar(idxs) else idxs
+                dists = [dists] if np.isscalar(dists) else dists
+
+                for j_local, d in zip(idxs, dists):
+                    if d**2 > d2_max:
+                        continue  #  Skip if too far
+                    j = target_idx[j_local]
+                    key = (min(i, j), max(i, j))
+                    if key in added_pairs:
+                        continue
+                    label = 1 if tids[i] == tids[j] and tids[i] >= 0 else 0
+                    pairs.append((coords[i], coords[j], label))
+                    added_pairs.add(key)
+
+                # Add 1 random negative
+                other_targets = list(set(target_idx) - set([target_idx[j_local] for j_local in idxs]))
+                if other_targets:
+                    rand_j = np.random.choice(other_targets)
+                    key = (min(i, rand_j), max(i, rand_j))
+                    if key not in added_pairs:
+                        label = 1 if tids[i] == tids[rand_j] and tids[i] >= 0 else 0
+                        pairs.append((coords[i], coords[rand_j], label))
+                        added_pairs.add(key)
+
+    return pairs
+
+# -------------------- Dataset --------------------
+class HitPairDataset(Dataset):
+    def __init__(self, data_path):
+        print(f"Loading dataset from {data_path}...")
+        self.hit_pairs = []
+        awk_data = load_data(data_path)
+        frame_ids = np.unique(ak.to_numpy(awk_data['frame_array']))
+
+        for frame_id in tqdm(frame_ids, desc="Building hit pairs"):
+            mask = ak.to_numpy(awk_data['frame_array']) == frame_id
+            frame_hits = awk_data[mask]
+            frame_pairs = build_hit_pairs_from_frame(frame_hits)
+            self.hit_pairs.extend(frame_pairs)
+
+        print(f"Total hit pairs: {len(self.hit_pairs)}")
+
+    def __len__(self):
+        return len(self.hit_pairs)
+
+    def __getitem__(self, idx):
+        x1, x2, label = self.hit_pairs[idx]
+        return torch.tensor(x1, dtype=torch.float32), torch.tensor(x2, dtype=torch.float32), torch.tensor(label, dtype=torch.float32)
+
+# -------------------- Model --------------------
+class EmbeddingMLP(nn.Module):
+    def __init__(self, input_dim=3, hidden=[128, 128], embedding_dim=64, 
+                 activation=nn.ReLU, layer_norm=True, normalize_output=True):
+        super().__init__()
+        layers = []
+        last = input_dim
+        for h in hidden:
+            layers.append(nn.Linear(last, h))
+            if layer_norm:
+                layers.append(nn.LayerNorm(h))  # Added: optional layer norm
+            layers.append(activation())         # Changed: activation is now configurable
+            last = h
+        layers.append(nn.Linear(last, embedding_dim))  # Final projection to emb_dim
+        self.encoder = nn.Sequential(*layers)
+        self.normalize_output = normalize_output       # Added: optional output normalization
+
+    def forward(self, x):
+        x_out = self.encoder(x)
+        if self.normalize_output:
+            return torch.nn.functional.normalize(x_out)  # Added: L2 normalization of embedding
+        return x_out
+
+
+# -------------------- Contrastive Loss --------------------
+class ContrastiveLoss(nn.Module):
+    def __init__(self, margin=1):
+        super().__init__()
+        self.margin = margin
+
+    def forward(self, x1, x2, label):
+        dist = (x1 - x2).pow(2).sum(1).sqrt()
+        loss_pos = label * dist.pow(2)
+        loss_neg = (1 - label) * (self.margin - dist).clamp(min=0).pow(2)
+        return (loss_pos + loss_neg).mean()
+
+# -------------------- Training Loop --------------------
+def train(model, loader, optimizer, criterion, device):
+    model.train()
+    total_loss = 0.0
+    pbar = tqdm(loader, desc="Training", unit="batch")
+
+    for x1, x2, label in pbar:
+        x1, x2, label = x1.to(device), x2.to(device), label.to(device)
+        emb1 = model(x1)
+        emb2 = model(x2)
+
+        # 💡 Add this to monitor collapse:
+        with torch.no_grad():
+            norms = emb1.norm(dim=1)
+            pbar.set_postfix({
+                'loss': 0.0,  # temp, will update after loss is calculated
+                'emb_norm_mean': norms.mean().item(),
+                'emb_norm_std': norms.std().item()
+            })
+
+        loss = criterion(emb1, emb2, label)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+
+        # Update loss in tqdm bar
+        pbar.set_postfix({
+            'loss': loss.item(),
+            'emb_norm_mean': norms.mean().item(),
+            'emb_norm_std': norms.std().item()
+        })
+
+    return total_loss / len(loader)
+
+
+# -------------------- Testing & Visualization --------------------
+def test(model, test_loader, criterion, device):
+    model.eval()
+    all_distances = []
+    all_labels = []
+    total_loss = 0.0
+
+    with torch.no_grad():
+        for x1, x2, label in tqdm(test_loader, desc="Testing"):
+            x1, x2, label = x1.to(device), x2.to(device), label.to(device)
+            emb1 = model(x1)
+            emb2 = model(x2)
+            dists = (emb1 - emb2).pow(2).sum(1).sqrt()
+            loss = criterion(emb1, emb2, label)
+            total_loss += loss.item()
+            all_distances.extend(dists.cpu().numpy())
+            all_labels.extend(label.cpu().numpy())
+
+    all_distances = np.array(all_distances)
+    all_labels = np.array(all_labels)
+
+    print(f"\nTest Loss: {total_loss / len(test_loader):.4f}")
+    print(f"Mean Positive Distance: {np.mean(all_distances[all_labels == 1]):.4f}")
+    print(f"Mean Negative Distance: {np.mean(all_distances[all_labels == 0]):.4f}")
+
+    # Plot
+    plt.hist(all_distances[all_labels == 1], bins=50, alpha=0.6, label='Genuine (label=1)')
+    plt.hist(all_distances[all_labels == 0], bins=50, alpha=0.6, label='Fake (label=0)')
+    plt.xlabel('Embedding Distance')
+    plt.ylabel('Frequency')
+    plt.title('Distribution of Embedding Distances (Test Set)')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("embedding_distance_histogram.png")
+    plt.show()
+
+# -------------------- Main --------------------
+def main():
+    train_path = "/users/gy22186/mu3e/new_two_signal_files/train_data.parquet"
+    test_path = "/users/gy22186/mu3e/new_two_signal_files/test_data.parquet"
+    dataset_path = "/users/gy22186/mu3e/new_two_signal_files/hit_pairs_dataset.pt"
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    dataset = HitPairDataset(train_path)
+
+    loader = DataLoader(dataset, batch_size=512, shuffle=True)
+
+    # Model & training
+    model = EmbeddingMLP(
+    input_dim=3,
+    hidden=[128, 128, 128],      # like [n_hiddens] * n_layers
+    embedding_dim=64,
+    activation=nn.ReLU,          # or nn.Tanh, etc.
+    layer_norm=True,
+    normalize_output=True
+).to(device)
+ 
+    criterion = ContrastiveLoss(margin=1)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+
+    num_epochs = 10
+    for epoch in range(1, num_epochs + 1):
+        print(f"\nEpoch {epoch}/{num_epochs}")
+        loss = train(model, loader, optimizer, criterion, device)
+        print(f"Epoch {epoch} loss: {loss:.4f}")
+
+    torch.save(model.state_dict(), "embedding_mlp.pt")
+    print("Model saved as embedding_mlp.pt")
+
+    # ---------------- Test ----------------
+    print("\nLoading test data...")
+    test_dataset = HitPairDataset(test_path)
+    test_loader = DataLoader(test_dataset, batch_size=2000, shuffle=False)
+    test(model, test_loader, criterion, device)
+
+if __name__ == "__main__":
+    main()

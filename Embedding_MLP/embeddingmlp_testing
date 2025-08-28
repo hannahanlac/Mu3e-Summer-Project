@@ -1,0 +1,344 @@
+import os
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+from scipy.spatial import cKDTree
+import awkward as ak
+import pyarrow.parquet as pq
+from tqdm import tqdm
+import random
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+# -------------------- Load Data --------------------
+def load_data(file_path):
+    table = pq.read_table(file_path)
+    awk_array = ak.from_arrow(table)
+    flat_dict = {key: ak.to_numpy(awk_array[key]).flatten() for key in awk_array.fields}
+    return ak.Array(flat_dict)
+
+# -------------------- Compute Global Cylindrical Stats --------------------
+def compute_global_cylindrical_stats(file_path):
+    awk_data = load_data(file_path)
+
+    gx = ak.to_numpy(awk_data['gx'])
+    gy = ak.to_numpy(awk_data['gy'])
+    gz = ak.to_numpy(awk_data['gz'])
+
+    valid_mask = ~(np.isnan(gx) | np.isnan(gy) | np.isnan(gz))
+    gx, gy, gz = gx[valid_mask], gy[valid_mask], gz[valid_mask]
+
+    r = np.sqrt(gx**2 + gy**2)
+    phi = np.arctan2(gy, gx)
+    z = gz
+
+    stats = {
+        'r_mean': r.mean(),
+        'r_std': r.std(),
+        'phi_mean': phi.mean(),
+        'phi_std': phi.std(),
+        'z_mean': z.mean(),
+        'z_std': z.std(),
+    }
+    print("Global cylindrical stats:", stats)
+    return stats
+
+# -------------------- Pair Builder --------------------
+def build_hit_pairs_from_frame(frame_hits, global_stats, k_neighbours=50, d2_max=1.5):
+    gx = ak.to_numpy(frame_hits['gx'])
+    gy = ak.to_numpy(frame_hits['gy'])
+    gz = ak.to_numpy(frame_hits['gz'])
+    layers = ak.to_numpy(frame_hits['layer_array'])
+    tids = ak.to_numpy(frame_hits['tid_array'])
+
+    valid_mask = ~(np.isnan(gx) | np.isnan(gy) | np.isnan(gz))
+    gx, gy, gz = gx[valid_mask], gy[valid_mask], gz[valid_mask]
+    layers = layers[valid_mask]
+    tids = tids[valid_mask]
+
+    # Convert to cylindrical coords
+    r = np.sqrt(gx**2 + gy**2)
+    phi = np.arctan2(gy, gx)
+    z = gz
+
+    # Normalize using global stats
+    r = (r - global_stats['r_mean']) / global_stats['r_std']
+    phi = (phi - global_stats['phi_mean']) / global_stats['phi_std']
+    z = (z - global_stats['z_mean']) / global_stats['z_std']
+
+    coords = np.stack([r, phi, z], axis=1)
+    if coords.shape[0] == 0:
+        return []
+
+    layer_indices = {layer: np.where(layers == layer)[0] for layer in np.unique(layers)}
+    kdtrees = {layer: cKDTree(coords[layer_indices[layer]]) for layer in layer_indices}
+
+    layer_connections = {1: [2], 2: [1, 3], 3: [2, 4], 4: [3]}
+
+    pairs = []
+    added_pairs = set()
+    tid_to_indices = {}
+    for i, tid in enumerate(tids):
+        if tid < 0:
+            continue
+        tid_to_indices.setdefault(tid, []).append(i)
+
+    for tid, indices in tid_to_indices.items():
+        for i in range(len(indices)):
+            for j in range(i + 1, len(indices)):
+                idx_i, idx_j = indices[i], indices[j]
+                if abs(layers[idx_i] - layers[idx_j]) == 1:
+                    key = (min(idx_i, idx_j), max(idx_i, idx_j))
+                    if key not in added_pairs:
+                        pairs.append((coords[idx_i], coords[idx_j], 1))
+                        added_pairs.add(key)
+
+    for layer, neighbors in layer_connections.items():
+        if layer not in layer_indices:
+            continue
+        for neighbor in neighbors:
+            if neighbor not in layer_indices:
+                continue
+
+            source_idx = layer_indices[layer]
+            target_idx = layer_indices[neighbor]
+            tree = kdtrees[neighbor]
+
+            for i in source_idx:
+                if len(target_idx) == 0:
+                    continue
+                dists, idxs = tree.query(coords[i], k=min(k_neighbours, len(target_idx)))
+                idxs = [idxs] if np.isscalar(idxs) else idxs
+                dists = [dists] if np.isscalar(dists) else dists
+
+                for j_local, d in zip(idxs, dists):
+                    if d**2 > d2_max:
+                        continue
+                    j = target_idx[j_local]
+                    key = (min(i, j), max(i, j))
+                    if key in added_pairs:
+                        continue
+                    label = 1 if tids[i] == tids[j] and tids[i] >= 0 else 0
+                    pairs.append((coords[i], coords[j], label))
+                    added_pairs.add(key)
+
+    return pairs
+
+# -------------------- Dataset --------------------
+class HitPairDataset(Dataset):
+    def __init__(self, data_path, global_stats):
+        print(f"Loading dataset from {data_path}...")
+        self.hit_pairs = []
+        awk_data = load_data(data_path)
+        frame_ids = np.unique(ak.to_numpy(awk_data['frame_array']))
+
+        for frame_id in tqdm(frame_ids, desc="Building hit pairs"):
+            mask = ak.to_numpy(awk_data['frame_array']) == frame_id
+            frame_hits = awk_data[mask]
+            frame_pairs = build_hit_pairs_from_frame(frame_hits, global_stats)
+            self.hit_pairs.extend(frame_pairs)
+
+        print(f"Total hit pairs: {len(self.hit_pairs)}")
+
+    def __len__(self):
+        return len(self.hit_pairs)
+
+    def __getitem__(self, idx):
+        x1, x2, label = self.hit_pairs[idx]
+        return torch.tensor(x1, dtype=torch.float32), torch.tensor(x2, dtype=torch.float32), torch.tensor(label, dtype=torch.float32)
+# -------------------- Model --------------------
+class EmbeddingMLP(nn.Module):
+    def __init__(self, input_dim=3, hidden=[128, 128], embedding_dim=64, 
+                 activation=nn.ReLU, layer_norm=True, normalize_output=False):
+        super().__init__()
+        layers = []
+        last = input_dim
+        for h in hidden:
+            layers.append(nn.Linear(last, h))
+            if layer_norm:
+                layers.append(nn.LayerNorm(h))  # Added: optional layer norm
+            layers.append(activation())         # Changed: activation is now configurable
+            last = h
+        layers.append(nn.Linear(last, embedding_dim))  # Final projection to emb_dim
+        self.encoder = nn.Sequential(*layers)
+        self.normalize_output = normalize_output       # Added: optional output normalization
+
+    def forward(self, x):
+        x_out = self.encoder(x)
+        if self.normalize_output:
+            return torch.nn.functional.normalize(x_out)  # Added: L2 normalization of embedding
+        return x_out
+
+
+# -------------------- Contrastive Loss --------------------
+class ContrastiveLoss(nn.Module):
+    def __init__(self, margin=1.5):
+        super().__init__()
+        self.margin = margin
+
+    def forward(self, x1, x2, label):
+        dist = (x1 - x2).pow(2).sum(1).sqrt()
+        loss_pos = label * dist.pow(2)
+        loss_neg = (1 - label) * (self.margin - dist).clamp(min=0).pow(2)
+        return (loss_pos + loss_neg).mean()
+
+# -------------------- Training Loop --------------------
+from sklearn.decomposition import PCA
+
+def train(model, loader, optimizer, criterion, device, epoch=0, save_pca=True):
+    model.train()
+    total_loss = 0.0
+    all_embs = []
+    all_labels = []
+    all_pos_dists = []
+    all_neg_dists = []
+
+    pbar = tqdm(loader, desc=f"Training Epoch {epoch}", unit="batch")
+
+    for x1, x2, label in pbar:
+        x1, x2, label = x1.to(device), x2.to(device), label.to(device)
+
+        emb1 = model(x1)
+        emb2 = model(x2)
+
+        # Track distances
+        with torch.no_grad():
+            dist = (emb1 - emb2).pow(2).sum(1).sqrt()
+            norms = emb1.norm(dim=1)
+
+            pos_d = dist[label == 1]
+            neg_d = dist[label == 0]
+
+            if len(pos_d) > 0:
+                all_pos_dists.append(pos_d.mean().item())
+            if len(neg_d) > 0:
+                all_neg_dists.append(neg_d.mean().item())
+
+            # Track embeddings for PCA
+            all_embs.append(emb1.detach().cpu())
+            all_labels.append(label.detach().cpu())
+
+            pbar.set_postfix({
+                'loss': 0.0,  # temporary placeholder
+                'emb_norm': norms.mean().item(),
+                'emb_std': norms.std().item()
+            })
+
+        # Loss & update
+        loss = criterion(emb1, emb2, label)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+        pbar.set_postfix({
+            'loss': loss.item(),
+            'emb_norm': norms.mean().item(),
+            'emb_std': norms.std().item()
+        })
+
+    # Epoch summary
+    mean_pos = np.mean(all_pos_dists) if all_pos_dists else float('nan')
+    mean_neg = np.mean(all_neg_dists) if all_neg_dists else float('nan')
+    print(f"\nEpoch {epoch}: Mean Pos Dist = {mean_pos:.4f}, Mean Neg Dist = {mean_neg:.4f}")
+
+    # Optional PCA Visualization
+    if save_pca:
+        all_embs_np = torch.cat(all_embs).numpy()
+        all_labels_np = torch.cat(all_labels).numpy()
+
+        pca = PCA(n_components=2)
+        proj = pca.fit_transform(all_embs_np)
+
+        plt.figure(figsize=(6, 5))
+        plt.scatter(proj[all_labels_np == 1, 0], proj[all_labels_np == 1, 1], s=2, label='Positive', alpha=0.5)
+        plt.scatter(proj[all_labels_np == 0, 0], proj[all_labels_np == 0, 1], s=2, label='Negative', alpha=0.5)
+        plt.title(f'PCA of Embeddings - Epoch {epoch}')
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig(f"pca_epoch_{epoch}.png")
+        plt.close()
+
+    return total_loss / len(loader)
+
+
+# -------------------- Testing & Visualization --------------------
+def test(model, test_loader, criterion, device):
+    model.eval()
+    all_distances = []
+    all_labels = []
+    total_loss = 0.0
+
+    with torch.no_grad():
+        for x1, x2, label in tqdm(test_loader, desc="Testing"):
+            x1, x2, label = x1.to(device), x2.to(device), label.to(device)
+            emb1 = model(x1)
+            emb2 = model(x2)
+            dists = (emb1 - emb2).pow(2).sum(1).sqrt()
+            loss = criterion(emb1, emb2, label)
+            total_loss += loss.item()
+            all_distances.extend(dists.cpu().numpy())
+            all_labels.extend(label.cpu().numpy())
+
+    all_distances = np.array(all_distances)
+    all_labels = np.array(all_labels)
+
+    print(f"\nTest Loss: {total_loss / len(test_loader):.4f}")
+    print(f"Mean Positive Distance: {np.mean(all_distances[all_labels == 1]):.4f}")
+    print(f"Mean Negative Distance: {np.mean(all_distances[all_labels == 0]):.4f}")
+
+    # Plot
+    plt.hist(all_distances[all_labels == 1], bins=50, alpha=0.6, label='Genuine (label=1)')
+    plt.hist(all_distances[all_labels == 0], bins=50, alpha=0.6, label='Fake (label=0)')
+    plt.xlabel('Embedding Distance')
+    plt.ylabel('Frequency')
+    plt.title('Distribution of Embedding Distances (Test Set)')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("embedding_distance_histogram.png")
+    plt.show()
+# -------------------- Main --------------------
+def main():
+    train_path = "/users/gy22186/mu3e/new_two_signal_files/train_data.parquet"
+    test_path = "/users/gy22186/mu3e/new_two_signal_files/test_data.parquet"
+    global_stats = compute_global_cylindrical_stats(train_path)
+
+    train_dataset = HitPairDataset(train_path, global_stats)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    loader = DataLoader(train_dataset, batch_size=5000, shuffle=True)
+
+    # Model & training
+    model = EmbeddingMLP(
+    input_dim=3,
+    hidden=[128, 128, 128],      # like [n_hiddens] * n_layers
+    embedding_dim=64,
+    activation=nn.ReLU,          # or nn.Tanh, etc.
+    layer_norm=True,
+    normalize_output=False
+).to(device)
+ 
+    criterion = ContrastiveLoss(margin=1.5,)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+
+    num_epochs = 10
+    for epoch in range(1, num_epochs + 1):
+        print(f"\nEpoch {epoch}/{num_epochs}")
+        loss = train(model, loader, optimizer, criterion, device, epoch)
+        print(f"Epoch {epoch} loss: {loss:.4f}")
+
+
+    torch.save(model.state_dict(), "embedding_mlp.pt")
+    print("Model saved as embedding_mlp.pt")
+
+    # ---------------- Test ----------------
+    print("\nLoading test data...")
+    test_dataset = HitPairDataset(test_path, global_stats)
+    test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False)
+    test(model, test_loader, criterion, device)
+    # Remaining training & testing logic unchanged...
+
+if __name__ == "__main__":
+    main()
