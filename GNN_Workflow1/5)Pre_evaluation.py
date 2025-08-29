@@ -6,7 +6,7 @@ import numpy as np
 ###################### Predicted Tracks - Condition 1 ##########################
 
 # Load the CSV file
-file_path = '/users/gy22186/mu3e/five_signal_files/reconstructed_tracks_sphericalgine.csv'
+file_path = '/users/gy22186/mu3e/two_signal_files/reconstructed_tracks_new.csv'
 print("Loading CSV file...")
 df = pd.read_csv(file_path)
 
@@ -87,7 +87,7 @@ def safe_parse_hit_ids(value):
 ####################### Test Data File #############################
 
 # Load the test data parquet file and keep only the specified columns
-test_data_file_path = '/users/gy22186/mu3e/five_signal_files/test_data.parquet'
+test_data_file_path = '/users/gy22186/mu3e/two_signal_files/test_data.parquet'
 print("Loading test data parquet file...")
 test_data_df = pd.read_parquet(test_data_file_path, columns=["frame_array", "tid_array", "traj_p", "traj_pt", "traj_lambda", "traj_phi"])
 
@@ -216,7 +216,7 @@ merged_df = merged_df[merged_df.apply(lambda x: not x.empty, axis=1)]
 # Save the DataFrame as fake_rate.csv
 safe_command = str(command).replace("/", "-")
 
-fake_rate_path = f'/users/gy22186/mu3e/five_signal_files/fake_rate_{safe_command}_harshgine.csv'
+fake_rate_path = f'/users/gy22186/mu3e/two_signal_files/fake_rate_{safe_command}_harshgine.csv'
 merged_df.to_csv(fake_rate_path, index=False)
 print(f"Fake rate CSV file saved to {fake_rate_path}")
 
@@ -257,7 +257,7 @@ print(f"Size of merged DataFrame: {merged_df.shape}")
 print("Saving CSV...")
 
 # Ensure the directory exists
-output_directory = '/users/gy22186/mu3e/five_signal_files'
+output_directory = '/users/gy22186/mu3e/two_signal_files'
 os.makedirs(output_directory, exist_ok=True)
 
 # Save the final DataFrame to a new CSV file

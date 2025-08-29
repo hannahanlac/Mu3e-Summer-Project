@@ -7,10 +7,10 @@ import torch.nn as nn
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 import os
-from scipy.spatial import cKDTree
 import networkx as nx
 import pandas as pd
 from torch_geometric.nn import GINEConv
+import torch.nn.functional as F
 
 # ---------- Load and Preprocess Test Data ----------
 def load_data(file_path):
@@ -222,56 +222,63 @@ def build_graph_pyg(frame_hits):
 #         return torch.sigmoid(self.model(edge_attr))
 
 class GINEEdgeClassifier(nn.Module):
-    def __init__(self, node_in_channels, edge_in_channels, hidden_channels, num_layers=3):
+    def __init__(self, node_in_channels, edge_in_channels, hidden_channels, num_layers=3, dropout=0.3):
         super().__init__()
-        # Project edge features to match the hidden size of node features
+        # Project inputs
+        self.node_proj = nn.Linear(node_in_channels, hidden_channels)
         self.edge_proj = nn.Linear(edge_in_channels, hidden_channels)
 
-        # Project node features to hidden size
-        self.node_proj = nn.Linear(node_in_channels, hidden_channels)
+        # One distinct MLP per GINE layer 
+        self.convs = nn.ModuleList()
+        self.norms = nn.ModuleList()
+        for _ in range(num_layers):
+            nn_update = nn.Sequential(
+                nn.Linear(hidden_channels, hidden_channels),
+                nn.ReLU(),
+                nn.Linear(hidden_channels, hidden_channels)
+            )
+            self.convs.append(GINEConv(nn_update, edge_dim=hidden_channels))
+            self.norms.append(nn.LayerNorm(hidden_channels))
 
-        # Edge MLP for GINEConv
-        edge_mlp = nn.Sequential(
-            nn.Linear(hidden_channels, hidden_channels),
+        self.dropout = nn.Dropout(dropout)
+
+        # Symmetric edge head: [h_src, h_dst, |h_src-h_dst|, h_src*h_dst, edge_attr]
+        in_head = hidden_channels*4 + hidden_channels
+        self.edge_head = nn.Sequential(
+            nn.Linear(in_head, hidden_channels),
             nn.ReLU(),
-            nn.Linear(hidden_channels, hidden_channels)
-        )
-        # GINEConv layers
-        self.convs = nn.ModuleList([
-            GINEConv(edge_mlp, edge_dim=hidden_channels) for _ in range(num_layers)
-        ])
-        # MLP for edge classification
-        self.edge_classifier = nn.Sequential(
-            nn.Linear(2 * hidden_channels + hidden_channels, hidden_channels),  # Fix input size
-            nn.ReLU(),
-            nn.Linear(hidden_channels, 1)
+            nn.Dropout(dropout),
+            nn.Linear(hidden_channels, 1)  # logits (no sigmoid)
         )
 
     def forward(self, x, edge_index, edge_attr):
-        # Project node features to hidden size
         x = self.node_proj(x)
-
-        # Project edge features to match the hidden size of node features
         edge_attr = self.edge_proj(edge_attr)
 
-        # Message passing
-        for conv in self.convs:
-            x = conv(x, edge_index, edge_attr)
+        for conv, norm in zip(self.convs, self.norms):
+            h = conv(x, edge_index, edge_attr)
+            x = norm(x + h)           # residual
+            x = F.relu(x)
+            x = self.dropout(x)
 
-        # Edge classification
         src, dst = edge_index
-        edge_features = torch.cat([x[src], x[dst], edge_attr], dim=1)  # Concatenate features
-        return torch.sigmoid(self.edge_classifier(edge_features))
+        h_src, h_dst = x[src], x[dst]
+        diff = torch.abs(h_src - h_dst)
+        prod = h_src * h_dst
+        edge_features = torch.cat([h_src, h_dst, diff, prod, edge_attr], dim=1)
+        logits = self.edge_head(edge_features)
+        return logits  
+
     
 # ---------- Main Evaluation ----------
 def evaluate():
-    file_path = '/users/gy22186/mu3e/five_signal_files/test_data.parquet'
+    file_path = '/users/gy22186/mu3e/two_signal_files/test_data.parquet'
     print("Loading data...")
     awk_data = load_data(file_path)
 
     print("Building/loading graphs...")
     frame_ids = np.unique(ak.to_numpy(awk_data['frame_array']))
-    graphs_path = "/users/gy22186/mu3e/five_signal_files/test_graphs/testgraphsspherical_dataset.pt"
+    graphs_path = "/users/gy22186/mu3e/two_signal_files/test_graphs/testgraphsspherical_dataset.pt"
 
     if os.path.exists(graphs_path):
         print("Loading saved graphs from disk...")
@@ -294,16 +301,16 @@ def evaluate():
     model = GINEEdgeClassifier(
         node_in_channels=4,  # Number of node features (r_norm, phi_sin, phi_cos, z_norm)
         edge_in_channels=20,  # Number of edge features
-        hidden_channels=64,   # Hidden layer size
+        hidden_channels=128,   # Hidden layer size
         num_layers=3          # Number of GINEConv layers
     ).to(device)
-    model.load_state_dict(torch.load("/users/gy22186/mu3e/five_signal_files/edge_classifier_gine.pt", map_location=device))
+    model.load_state_dict(torch.load("/users/gy22186/mu3e/two_signal_files/edge_classifier_gine.pt", map_location=device))
     model.eval()
 
     loader = DataLoader(data_list, batch_size=1, shuffle=False)
-    for batch in loader:
-        print(f"Batch attributes: {batch.keys}")  # Check all attributes in the batch
-        break
+    # for batch in loader:
+    #     print(f"Batch attributes: {batch.keys}")  # Check all attributes in the batch
+    #     break
 
     predictions = []
     with torch.no_grad():
@@ -321,7 +328,7 @@ def evaluate():
 def build_tracks(
     predictions, 
     data_list, 
-    threshold_lo=0.95,  # Single threshold for filtering edges
+    threshold_lo=0.9,  
     min_hits=4, 
     output_path="/users/gy22186/mu3e/two_signal_files/reconstructed_tracks_new.csv"
 ):

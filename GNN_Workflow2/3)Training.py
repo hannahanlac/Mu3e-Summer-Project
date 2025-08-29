@@ -10,9 +10,7 @@ from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import torch.multiprocessing as mp
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from torch_geometric.nn import GINEConv
-import torch.nn.functional as F
+from sklearn.preprocessing import StandardScaler
 
 
 # -------------------- Data Loading --------------------
@@ -23,53 +21,37 @@ def load_data(file_path):
     return ak.Array(flat_dict)
 
 # -------------------- Graph Builder --------------------
-def build_graph_pyg(frame_hits):
-    # Extract hit data
+def build_graph_pyg(frame_hits, k_neighbours=50):
     gx = ak.to_numpy(frame_hits['gx'])
     gy = ak.to_numpy(frame_hits['gy'])
     gz = ak.to_numpy(frame_hits['gz'])
     layers = ak.to_numpy(frame_hits['layer_array'])
+    stations = ak.to_numpy(frame_hits['station_array'])
+    ladders = ak.to_numpy(frame_hits['ladder_array'])
+    chips = ak.to_numpy(frame_hits['chip_array'])
     hit_IDs = ak.to_numpy(frame_hits['hit_ID'])
-    tids = ak.to_numpy(frame_hits['tid_array'])  # Track IDs
+    tids = ak.to_numpy(frame_hits['tid_array'])
 
-    # Filter valid hits
     valid_mask = ~(np.isnan(gx) | np.isnan(gy) | np.isnan(gz))
     gx, gy, gz = gx[valid_mask], gy[valid_mask], gz[valid_mask]
     layers = layers[valid_mask]
+    stations = stations[valid_mask]
+    ladders = ladders[valid_mask]
+    chips = chips[valid_mask]
     hit_IDs = hit_IDs[valid_mask]
     tids = tids[valid_mask]
 
-    if len(gx) == 0:
+    coords = np.stack([gx, gy, gz], axis=1)
+    if coords.shape[0] == 0:
         return None
-
-    # Convert to cylindrical coordinates
-    r = np.sqrt(gx**2 + gy**2)  # Radial distance
-    phi = np.arctan2(gy, gx)    # Azimuthal angle
-    z = gz                      # Longitudinal position
-
-    # Normalize r and z
-    r_norm = (r - r.min()) / (r.max() - r.min())
-    z_norm = (z - z.min()) / (z.max() - z.min())
-
-    # Encode phi using sin and cos
-    phi_sin = np.sin(phi)
-    phi_cos = np.cos(phi)
-
-    # Combine normalised cylindrical coordinates
-    coords = np.stack([r_norm, phi_sin, phi_cos, z_norm], axis=1)
 
     edge_index = []
     edge_attr = []
     edge_label = []
 
-    # One-hot encode the layers with a fixed number of categories
-    encoder = OneHotEncoder(sparse_output=False, categories=[range(1, 5)])  # Fixed categories: [1, 2, 3, 4]
-    layers_onehot = encoder.fit_transform(layers.reshape(-1, 1))  # One-hot encode layers
-
-    # Group hits by layer
     layer_indices = {layer: np.where(layers == layer)[0] for layer in np.unique(layers)}
+    kdtrees = {layer: cKDTree(coords[layer_indices[layer]]) for layer in layer_indices}
 
-    # Define connections between adjacent layers
     layer_connections = {
         1: [2],
         2: [1, 3],
@@ -77,7 +59,6 @@ def build_graph_pyg(frame_hits):
         4: [3]
     }
 
-    # Create edges between all hits in adjacent layers
     for layer, neighbors in layer_connections.items():
         if layer not in layer_indices:
             continue
@@ -87,37 +68,43 @@ def build_graph_pyg(frame_hits):
 
             source_idx = layer_indices[layer]
             target_idx = layer_indices[neighbor]
+            tree = kdtrees[neighbor]
 
             for i in source_idx:
-                for j in target_idx:
+                dists, idxs = tree.query(coords[i], k=min(k_neighbours, len(target_idx)))
+                idxs = [idxs] if np.isscalar(idxs) else idxs
+                for j_local in idxs:
+                    j = target_idx[j_local]
                     edge_index.append([i, j])
 
-                    # Compute edge features
                     source = coords[i]
                     target = coords[j]
                     feat_diff = source - target
-                    layer_onehot_source = layers_onehot[i]
-                    layer_onehot_target = layers_onehot[j]
-                    edge_feat = np.concatenate([source, target, feat_diff, layer_onehot_source, layer_onehot_target])
+                    cat_feats = np.array([
+                        layers[i], stations[i], ladders[i], chips[i],
+                        layers[j], stations[j], ladders[j], chips[j]
+                    ])
+                    edge_feat = np.concatenate([source, target, feat_diff, cat_feats])
                     edge_attr.append(edge_feat)
 
-                    # Label the edge as real (1) if hits belong to the same track
                     label = 1 if tids[i] == tids[j] else 0
                     edge_label.append(label)
 
     if not edge_index:
         return None
 
-    # Convert edge attributes to tensors
-    edge_attr = np.array(edge_attr, dtype=np.float32)
+    # Normalize edge_attr
+    edge_attr = np.array(edge_attr)  # Ensure edge_attr is a NumPy array
+    # scaler = StandardScaler()
+    # edge_attr = scaler.fit_transform(edge_attr)  # Normalize features
     edge_attr = torch.tensor(edge_attr, dtype=torch.float)
+
     edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
     edge_label = torch.tensor(edge_label, dtype=torch.float).view(-1, 1)
-    x = torch.tensor(coords, dtype=torch.float)  # Node features remain in cylindrical coordinates
+    x = torch.tensor(coords, dtype=torch.float)
 
     return Data(x=x, edge_index=edge_index, edge_attr=edge_attr, y=edge_label, hit_IDs=torch.tensor(hit_IDs, dtype=torch.long))
-
-
+    
 def evaluate_edge_coverage(graph: Data, tids: np.ndarray, layers: np.ndarray):
     edge_index = graph.edge_index.cpu().numpy()
     predicted_edges = set(tuple(edge) for edge in edge_index.T if edge[0] != edge[1])
@@ -187,110 +174,50 @@ def evaluate_edge_coverage(graph: Data, tids: np.ndarray, layers: np.ndarray):
     }
 
 # -------------------- Edge Classifier Model --------------------
-# class EdgeClassifier(nn.Module):
-#     def __init__(self, in_channels=20, hidden=[32, 64]):
-#         super().__init__()
-#         layers = []
-#         last = in_channels
-#         for i, h in enumerate(hidden):
-#             layers.append(nn.Linear(last, h))
-#             layers.append(nn.BatchNorm1d(h))
-#             layers.append(nn.ReLU())
-#             last = h
-#         layers.append(nn.Linear(last, 1))  # Final output
-#         self.model = nn.Sequential(*layers)
-
-#     def forward(self, edge_attr):
-#         return torch.sigmoid(self.model(edge_attr))
-
-class GINEEdgeClassifier(nn.Module):
-    def __init__(self, node_in_channels, edge_in_channels, hidden_channels, num_layers=3, dropout=0.3):
+class EdgeClassifier(nn.Module):
+    def __init__(self, in_channels=17, hidden=[32, 64]):
         super().__init__()
-        # Project inputs
-        self.node_proj = nn.Linear(node_in_channels, hidden_channels)
-        self.edge_proj = nn.Linear(edge_in_channels, hidden_channels)
+        layers = []
+        last = in_channels
+        for i, h in enumerate(hidden):
+            layers.append(nn.Linear(last, h))
+            layers.append(nn.BatchNorm1d(h))
+            layers.append(nn.ReLU())
+            last = h
+        layers.append(nn.Linear(last, 1))  # Final output
+        self.model = nn.Sequential(*layers)
 
-        # One distinct MLP per GINE layer (do not share)
-        self.convs = nn.ModuleList()
-        self.norms = nn.ModuleList()
-        for _ in range(num_layers):
-            nn_update = nn.Sequential(
-                nn.Linear(hidden_channels, hidden_channels),
-                nn.ReLU(),
-                nn.Linear(hidden_channels, hidden_channels)
-            )
-            self.convs.append(GINEConv(nn_update, edge_dim=hidden_channels))
-            self.norms.append(nn.LayerNorm(hidden_channels))
-
-        self.dropout = nn.Dropout(dropout)
-
-        # Symmetric edge head: [h_src, h_dst, |h_src-h_dst|, h_src*h_dst, edge_attr]
-        in_head = hidden_channels*4 + hidden_channels
-        self.edge_head = nn.Sequential(
-            nn.Linear(in_head, hidden_channels),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_channels, 1)  # logits (no sigmoid)
-        )
-
-    def forward(self, x, edge_index, edge_attr):
-        x = self.node_proj(x)
-        edge_attr = self.edge_proj(edge_attr)
-
-        for conv, norm in zip(self.convs, self.norms):
-            h = conv(x, edge_index, edge_attr)
-            x = norm(x + h)           # residual
-            x = F.relu(x)
-            x = self.dropout(x)
-
-        src, dst = edge_index
-        h_src, h_dst = x[src], x[dst]
-        diff = torch.abs(h_src - h_dst)
-        prod = h_src * h_dst
-        edge_features = torch.cat([h_src, h_dst, diff, prod, edge_attr], dim=1)
-        logits = self.edge_head(edge_features)
-        return logits  # use with BCEWithLogitsLoss
+    def forward(self, edge_attr):
+        return torch.sigmoid(self.model(edge_attr))
 
 # -------------------- Training Function --------------------
-def train(model, loader, optimizer, criterion, device, max_grad_norm=1.0):
+def train(model, loader, optimizer, criterion, device):
     model.train()
-    epoch_losses, epoch_accuracies = [], []
+    epoch_losses = []
+    epoch_accuracies = []
+
     pbar = tqdm(loader, desc="Training", unit="batch")
 
     for batch in pbar:
         batch = batch.to(device)
-        logits = model(batch.x, batch.edge_index, batch.edge_attr).view(-1)
+        pred = model(batch.edge_attr).view(-1)
         label = batch.y.view(-1)
+        loss = criterion(pred, label)
 
-        loss = criterion(logits, label)
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
         optimizer.step()
 
-        with torch.no_grad():
-            probs = torch.sigmoid(logits)  # Keep this for accuracy calculation
-            acc = ((probs > 0.5) == (label > 0.5)).float().mean().item()
-
+        acc = ((pred > 0.5) == (label > 0.5)).float().mean().item()
         epoch_losses.append(loss.item())
         epoch_accuracies.append(acc)
+
         pbar.set_postfix(loss=f"{loss.item():.4f}", acc=f"{acc:.4f}")
 
-    return sum(epoch_losses)/len(epoch_losses), sum(epoch_accuracies)/len(epoch_accuracies)
+    avg_loss = sum(epoch_losses) / len(epoch_losses)
+    avg_acc = sum(epoch_accuracies) / len(epoch_accuracies)
 
-@torch.no_grad()
-def evaluate(model, loader, criterion, device):
-    model.eval()
-    losses, accs = [], []
-    for batch in loader:
-        batch = batch.to(device)
-        logits = model(batch.x, batch.edge_index, batch.edge_attr).view(-1)
-        label = batch.y.view(-1)
-        loss = criterion(logits, label)
-        probs = torch.sigmoid(logits)  # Keep this for accuracy calculation
-        acc = ((probs > 0.5) == (label > 0.5)).float().mean().item()
-        losses.append(loss.item()); accs.append(acc)
-    return sum(losses)/len(losses), sum(accs)/len(accs)
+    return avg_loss, avg_acc
 
 # -------------------- Main --------------------
 def main():
@@ -300,7 +227,7 @@ def main():
 
     print("Building/loading graphs...")
     frame_ids = np.unique(ak.to_numpy(awk_data['frame_array']))
-    graphs_path = "/users/gy22186/mu3e/two_signal_files/train_graphs/graphslayersonly_dataset.pt"
+    graphs_path = "/users/gy22186/mu3e/two_signal_files/train_graphs/graphsknn_dataset.pt"
 
     if os.path.exists(graphs_path):
         print("Loading saved graphs from disk...")
@@ -321,25 +248,18 @@ def main():
         print(f"Saved {len(data_list)} graphs to disk.")
 
     print(f"Total graphs ready: {len(data_list)}")
-    for i, graph in enumerate(data_list):
-        print(f"Graph {i}: edge_attr.shape = {graph.edge_attr.shape}")
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = GINEEdgeClassifier(
-        node_in_channels=4,  # Number of node features (r_norm, phi_sin, phi_cos, z_norm)
-        edge_in_channels=20,  # Number of edge features
-        hidden_channels=128,   # Hidden layer size
-        num_layers=3          # Number of GINEConv layers
-    ).to(device)
+    model = EdgeClassifier(in_channels=17).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3)
-    criterion = nn.BCEWithLogitsLoss()  # Standard BCE loss without pos_weight
+    criterion = nn.BCELoss()
 
     loader = DataLoader(data_list, batch_size=100, shuffle=True)
 
     print("Starting training...")
-    num_epochs = 50
+    num_epochs = 20
     for epoch in range(1, num_epochs + 1):
         print(f"\nEpoch {epoch}/{num_epochs}")
         avg_loss, avg_acc = train(model, loader, optimizer, criterion, device)
@@ -348,8 +268,8 @@ def main():
         scheduler.step(avg_loss)
         print(f"Current LR: {optimizer.param_groups[0]['lr']:.6f}")
 
-    torch.save(model.state_dict(), "/users/gy22186/mu3e/five_signal_files/edge_classifier_gine.pt")
-    print("Training complete. Model saved as edge_classifier_gine.pt")
+    torch.save(model.state_dict(), "/users/gy22186/mu3e/two_signal_files/edge_classifier_pyg50nn.pt")
+    print("Training complete. Model saved as edge_classifier_pyg50nn.pt")
 
 if __name__ == "__main__":
     main()
